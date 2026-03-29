@@ -14,7 +14,7 @@ pub fn scan_directory(dir: &Path) -> Result<Vec<PathBuf>, AppError> {
             e.path()
                 .extension()
                 .and_then(|ext| ext.to_str())
-                .map(|ext| supported.contains(&ext.to_lowercase().as_str()))
+                .map(|ext| supported.iter().any(|s| ext.eq_ignore_ascii_case(s)))
                 .unwrap_or(false)
         })
         .map(|e| e.path().to_owned())
