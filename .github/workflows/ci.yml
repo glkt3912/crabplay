@@ -2,59 +2,48 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    name: Build and Test
-    runs-on: ${{ matrix.os }}
+  ci:
+    name: CI
+    # CoreAudio 依存のため macOS のみ
+    runs-on: macos-latest
     timeout-minutes: 30
-    strategy:
-      matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-        rust: [stable]
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ matrix.rust }}
-        components: rustfmt, clippy
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
-    - name: Cache cargo
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
-    - name: Check formatting
-      run: cargo fmt -- --check
-      shell: bash
-      if: matrix.rust == 'stable'
+      - name: Check formatting
+        run: cargo fmt --check
 
-    - name: Run clippy
-      run: cargo clippy -- -D warnings
-      shell: bash
-      if: matrix.rust == 'stable'
+      - name: Clippy
+        run: cargo clippy -- -D warnings
 
-    - name: Build
-      run: cargo build --locked --verbose
-      shell: bash
+      - name: Build
+        run: cargo build --locked
 
-    - name: Run tests
-      run: cargo test --locked --verbose
-      shell: bash
+      - name: Test
+        run: cargo test
