@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
 
@@ -10,7 +9,7 @@ use crate::error::AppError;
 pub struct Player {
     _stream: OutputStream,
     _handle: OutputStreamHandle,
-    sink: Arc<Mutex<Sink>>,
+    sink: Sink,
 }
 
 impl Player {
@@ -21,38 +20,36 @@ impl Player {
         Ok(Self {
             _stream: stream,
             _handle: handle,
-            sink: Arc::new(Mutex::new(sink)),
+            sink,
         })
     }
 
     pub fn load_and_play(&self, path: &Path) -> Result<(), AppError> {
         let file = BufReader::new(File::open(path)?);
         let source = Decoder::new(file).map_err(|e| AppError::Audio(e.to_string()))?;
-        let sink = self.sink.lock().unwrap();
-        sink.stop();
-        sink.append(source);
-        sink.play();
+        self.sink.stop();
+        self.sink.append(source);
+        self.sink.play();
         Ok(())
     }
 
     pub fn toggle_pause(&self) {
-        let sink = self.sink.lock().unwrap();
-        if sink.is_paused() {
-            sink.play();
+        if self.sink.is_paused() {
+            self.sink.play();
         } else {
-            sink.pause();
+            self.sink.pause();
         }
     }
 
     pub fn is_paused(&self) -> bool {
-        self.sink.lock().unwrap().is_paused()
+        self.sink.is_paused()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.sink.lock().unwrap().empty()
+        self.sink.empty()
     }
 
     pub fn stop(&self) {
-        self.sink.lock().unwrap().stop();
+        self.sink.stop();
     }
 }
