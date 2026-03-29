@@ -8,10 +8,7 @@ fn cmd() -> Command {
 #[test]
 fn test_list_succeeds() {
     // カレントディレクトリには MP3/FLAC がないため空リストで正常終了
-    cmd()
-        .args(["--list", "--dir", "."])
-        .assert()
-        .success();
+    cmd().args(["--list", "--dir", "."]).assert().success();
 }
 
 #[test]

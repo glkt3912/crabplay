@@ -17,8 +17,7 @@ impl Player {
     pub fn new() -> Result<Self, AppError> {
         let (stream, handle) =
             OutputStream::try_default().map_err(|e| AppError::Audio(e.to_string()))?;
-        let sink =
-            Sink::try_new(&handle).map_err(|e| AppError::Audio(e.to_string()))?;
+        let sink = Sink::try_new(&handle).map_err(|e| AppError::Audio(e.to_string()))?;
         Ok(Self {
             _stream: stream,
             _handle: handle,
@@ -28,8 +27,7 @@ impl Player {
 
     pub fn load_and_play(&self, path: &Path) -> Result<(), AppError> {
         let file = BufReader::new(File::open(path)?);
-        let source =
-            Decoder::new(file).map_err(|e| AppError::Audio(e.to_string()))?;
+        let source = Decoder::new(file).map_err(|e| AppError::Audio(e.to_string()))?;
         let sink = self.sink.lock().unwrap();
         sink.stop();
         sink.append(source);

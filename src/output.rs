@@ -17,7 +17,10 @@ impl OutputFormatter for TextFormatter {
         } else {
             track.artist.clone()
         };
-        Ok(format!("[{}] {} ({}:{:02})", artist, track.title, mins, secs))
+        Ok(format!(
+            "[{}] {} ({}:{:02})",
+            artist, track.title, mins, secs
+        ))
     }
 
     fn format_name(&self) -> &'static str {

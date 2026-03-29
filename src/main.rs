@@ -11,10 +11,7 @@ fn run(args: &Args) -> Result<()> {
     args.validate().context("argument validation failed")?;
 
     let paths = scan_directory(&args.dir).context("directory scan failed")?;
-    let tracks: Vec<_> = paths
-        .iter()
-        .filter_map(|p| read_metadata(p).ok())
-        .collect();
+    let tracks: Vec<_> = paths.iter().filter_map(|p| read_metadata(p).ok()).collect();
 
     if tracks.is_empty() {
         eprintln!("No MP3/FLAC files found in '{}'", args.dir.display());

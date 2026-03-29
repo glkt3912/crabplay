@@ -138,10 +138,7 @@ fn draw(f: &mut ratatui::Frame, state: &AppState, list_state: &mut ListState) {
                     format!("{:<30}", &t.title),
                     Style::default().fg(Color::White),
                 ),
-                Span::styled(
-                    format!(" {:<20}", artist),
-                    Style::default().fg(Color::Cyan),
-                ),
+                Span::styled(format!(" {:<20}", artist), Style::default().fg(Color::Cyan)),
                 Span::styled(
                     format!(" {:>2}:{:02}", mins, secs),
                     Style::default().fg(Color::DarkGray),
@@ -168,8 +165,10 @@ fn draw(f: &mut ratatui::Frame, state: &AppState, list_state: &mut ListState) {
             PlayerState::Paused => "⏸",
             PlayerState::Stopped => "■",
         };
-        format!(" {} {} — {}  [↑↓] select  [Enter] play  [Space] pause  [n/p] skip  [q] quit",
-            status, track.title, track.artist)
+        format!(
+            " {} {} — {}  [↑↓] select  [Enter] play  [Space] pause  [n/p] skip  [q] quit",
+            status, track.title, track.artist
+        )
     } else {
         " [↑↓] select  [Enter] play  [q] quit".to_string()
     };
