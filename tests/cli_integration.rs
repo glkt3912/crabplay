@@ -1,28 +1,25 @@
-#[allow(deprecated)]
-use assert_cmd::cargo::cargo_bin;
+use assert_cmd::Command;
 use predicates::prelude::*;
 
-fn cmd() -> assert_cmd::Command {
-    #[allow(deprecated)]
-    let bin = cargo_bin("rust-cli-template");
-    assert_cmd::Command::from(std::process::Command::new(bin))
+fn cmd() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_crabplay"))
 }
 
 #[test]
-fn test_default_run_succeeds() {
+fn test_list_succeeds() {
+    // カレントディレクトリには MP3/FLAC がないため空リストで正常終了
     cmd()
+        .args(["--list", "--dir", "."])
         .assert()
-        .success()
-        .stdout(predicate::str::contains("IntLiteral"));
+        .success();
 }
 
 #[test]
-fn test_json_format() {
+fn test_list_json_format() {
     cmd()
-        .args(&["--format", "json"])
+        .args(["--list", "--format", "json", "--dir", "."])
         .assert()
-        .success()
-        .stdout(predicate::str::contains("\"kind\""));
+        .success();
 }
 
 #[test]
@@ -31,8 +28,9 @@ fn test_help_flag() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Usage: rust-cli-template"))
-        .stdout(predicate::str::contains("--format"));
+        .stdout(predicate::str::contains("crabplay"))
+        .stdout(predicate::str::contains("--dir"))
+        .stdout(predicate::str::contains("--list"));
 }
 
 #[test]
@@ -41,13 +39,22 @@ fn test_version_flag() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("rust-cli-template 0.1.0"));
+        .stdout(predicate::str::contains("crabplay 0.1.0"));
 }
 
 #[test]
-fn test_invalid_input_file() {
+fn test_nonexistent_dir_fails() {
     cmd()
-        .args(&["--input", "nonexistent_file.txt"])
+        .args(["--list", "--dir", "/nonexistent/path/xyz"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("error"));
+}
+
+#[test]
+fn test_invalid_format_fails() {
+    cmd()
+        .args(["--list", "--format", "xml", "--dir", "."])
         .assert()
         .failure()
         .stderr(predicate::str::contains("error"));
