@@ -81,7 +81,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                     if let Some(track) = state.current() {
                         let path = track.path.clone();
                         match player.load_and_play(&path) {
-                            Ok(_) => state.player_state = PlayerState::Playing,
+                            Ok(_) => state.set_playing(),
                             Err(e) => state.last_error = Some(e.to_string()),
                         }
                     }
@@ -89,11 +89,11 @@ fn event_loop<B: ratatui::backend::Backend>(
                 KeyCode::Char(' ') => {
                     state.last_error = None;
                     player.toggle_pause();
-                    state.player_state = if player.is_paused() {
-                        PlayerState::Paused
+                    if player.is_paused() {
+                        state.set_paused();
                     } else {
-                        PlayerState::Playing
-                    };
+                        state.set_playing();
+                    }
                 }
                 KeyCode::Char('n') => {
                     state.last_error = None;
@@ -102,7 +102,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                     if let Some(track) = state.current() {
                         let path = track.path.clone();
                         match player.load_and_play(&path) {
-                            Ok(_) => state.player_state = PlayerState::Playing,
+                            Ok(_) => state.set_playing(),
                             Err(e) => state.last_error = Some(e.to_string()),
                         }
                     }
@@ -114,7 +114,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                     if let Some(track) = state.current() {
                         let path = track.path.clone();
                         match player.load_and_play(&path) {
-                            Ok(_) => state.player_state = PlayerState::Playing,
+                            Ok(_) => state.set_playing(),
                             Err(e) => state.last_error = Some(e.to_string()),
                         }
                     }
@@ -124,8 +124,8 @@ fn event_loop<B: ratatui::backend::Backend>(
         }
 
         // 再生終了を検知して状態を更新
-        if matches!(state.player_state, PlayerState::Playing) && player.is_empty() {
-            state.player_state = PlayerState::Stopped;
+        if matches!(state.player_state(), PlayerState::Playing) && player.is_empty() {
+            state.set_stopped();
         }
     }
 
@@ -182,7 +182,7 @@ fn draw(f: &mut ratatui::Frame, state: &AppState, list_state: &mut ListState) {
     let (status_text, status_color) = if let Some(ref err) = state.last_error {
         (format!(" ⚠ {err}"), Color::Red)
     } else if let Some(track) = state.current() {
-        let status = match state.player_state {
+        let status = match state.player_state() {
             PlayerState::Playing => "▶",
             PlayerState::Paused => "⏸",
             PlayerState::Stopped => "■",
