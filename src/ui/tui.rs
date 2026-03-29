@@ -64,14 +64,17 @@ fn event_loop<B: ratatui::backend::Backend>(
                     list_state.select(Some(state.selected));
                 }
                 KeyCode::Enter => {
+                    state.last_error = None;
                     if let Some(track) = state.current() {
                         let path = track.path.clone();
-                        if player.load_and_play(&path).is_ok() {
-                            state.player_state = PlayerState::Playing;
+                        match player.load_and_play(&path) {
+                            Ok(_) => state.player_state = PlayerState::Playing,
+                            Err(e) => state.last_error = Some(e.to_string()),
                         }
                     }
                 }
                 KeyCode::Char(' ') => {
+                    state.last_error = None;
                     player.toggle_pause();
                     state.player_state = if player.is_paused() {
                         PlayerState::Paused
@@ -80,22 +83,26 @@ fn event_loop<B: ratatui::backend::Backend>(
                     };
                 }
                 KeyCode::Char('n') => {
+                    state.last_error = None;
                     state.next();
                     list_state.select(Some(state.selected));
                     if let Some(track) = state.current() {
                         let path = track.path.clone();
-                        if player.load_and_play(&path).is_ok() {
-                            state.player_state = PlayerState::Playing;
+                        match player.load_and_play(&path) {
+                            Ok(_) => state.player_state = PlayerState::Playing,
+                            Err(e) => state.last_error = Some(e.to_string()),
                         }
                     }
                 }
                 KeyCode::Char('p') => {
+                    state.last_error = None;
                     state.prev();
                     list_state.select(Some(state.selected));
                     if let Some(track) = state.current() {
                         let path = track.path.clone();
-                        if player.load_and_play(&path).is_ok() {
-                            state.player_state = PlayerState::Playing;
+                        match player.load_and_play(&path) {
+                            Ok(_) => state.player_state = PlayerState::Playing,
+                            Err(e) => state.last_error = Some(e.to_string()),
                         }
                     }
                 }
@@ -158,24 +165,32 @@ fn draw(f: &mut ratatui::Frame, state: &AppState, list_state: &mut ListState) {
 
     f.render_stateful_widget(list, chunks[0], list_state);
 
-    // ステータスバー
-    let status_text = if let Some(track) = state.current() {
+    // ステータスバー（エラーがある場合は赤色で表示）
+    let (status_text, status_color) = if let Some(ref err) = state.last_error {
+        (format!(" ⚠ {err}"), Color::Red)
+    } else if let Some(track) = state.current() {
         let status = match state.player_state {
             PlayerState::Playing => "▶",
             PlayerState::Paused => "⏸",
             PlayerState::Stopped => "■",
         };
-        format!(
-            " {} {} — {}  [↑↓] select  [Enter] play  [Space] pause  [n/p] skip  [q] quit",
-            status, track.title, track.artist
+        (
+            format!(
+                " {} {} — {}  [↑↓] select  [Enter] play  [Space] pause  [n/p] skip  [q] quit",
+                status, track.title, track.artist
+            ),
+            Color::Yellow,
         )
     } else {
-        " [↑↓] select  [Enter] play  [q] quit".to_string()
+        (
+            " [↑↓] select  [Enter] play  [q] quit".to_string(),
+            Color::Yellow,
+        )
     };
 
     let status = Paragraph::new(status_text)
         .block(Block::default().borders(Borders::ALL))
-        .style(Style::default().fg(Color::Yellow));
+        .style(Style::default().fg(status_color));
 
     f.render_widget(status, chunks[1]);
 }

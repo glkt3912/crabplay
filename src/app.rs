@@ -10,6 +10,8 @@ pub struct AppState {
     pub tracks: Vec<TrackInfo>,
     pub selected: usize,
     pub player_state: PlayerState,
+    /// 直近の再生エラーメッセージ。次の操作で自動クリアされる。
+    pub last_error: Option<String>,
 }
 
 impl AppState {
@@ -18,6 +20,7 @@ impl AppState {
             tracks,
             selected: 0,
             player_state: PlayerState::Stopped,
+            last_error: None,
         }
     }
 
