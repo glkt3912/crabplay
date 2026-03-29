@@ -11,11 +11,32 @@ fn run(args: &Args) -> Result<()> {
     args.validate().context("argument validation failed")?;
 
     let paths = scan_directory(&args.dir).context("directory scan failed")?;
-    let tracks: Vec<_> = paths.iter().filter_map(|p| read_metadata(p).ok()).collect();
+    let mut error_count = 0usize;
+    let tracks: Vec<_> = paths
+        .iter()
+        .filter_map(|p| match read_metadata(p) {
+            Ok(track) => Some(track),
+            Err(_) => {
+                error_count += 1;
+                None
+            }
+        })
+        .collect();
 
     if tracks.is_empty() {
-        eprintln!("No MP3/FLAC files found in '{}'", args.dir.display());
+        let detail = if error_count > 0 {
+            format!(" ({error_count} file(s) skipped due to errors)")
+        } else {
+            String::new()
+        };
+        eprintln!(
+            "No MP3/FLAC files found in '{}'{detail}",
+            args.dir.display()
+        );
         return Ok(());
+    }
+    if error_count > 0 {
+        eprintln!("Warning: {error_count} file(s) could not be read and were skipped");
     }
 
     if args.list {
