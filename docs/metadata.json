@@ -1,0 +1,42 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2026-03-29",
+  "documents": [
+    {
+      "id": "architecture",
+      "path": "docs/architecture.md",
+      "title": "アーキテクチャ",
+      "description": "モジュール依存関係、データフロー、エラーハンドリング設計、TUI構造、OutputFormatterトレイトの解説",
+      "tags": ["設計", "アーキテクチャ", "モジュール", "TUI", "オーディオ"],
+      "topics": ["モジュール構成", "エラーハンドリング", "データフロー", "再生エンジン", "TUIアーキテクチャ"],
+      "updatedAt": "2026-03-29"
+    },
+    {
+      "id": "crate-guide",
+      "path": "docs/crate-guide.md",
+      "title": "クレートガイド",
+      "description": "rodio/lofty/walkdir/ratatui/crossterm など各依存クレートの役割・使い方・注意点",
+      "tags": ["クレート", "依存関係", "rodio", "ratatui", "lofty"],
+      "topics": ["rodio", "lofty", "walkdir", "ratatui", "crossterm", "clap", "anyhow", "thiserror", "serde"],
+      "updatedAt": "2026-03-29"
+    },
+    {
+      "id": "development",
+      "path": "docs/development.md",
+      "title": "開発ガイド",
+      "description": "セットアップ、動作確認、テスト方法、よくあるエラーとその解決策、リリースビルド手順",
+      "tags": ["開発", "セットアップ", "テスト", "デバッグ", "CI"],
+      "topics": ["セットアップ", "動作確認", "テスト", "CI", "よくあるエラー", "リリースビルド"],
+      "updatedAt": "2026-03-29"
+    },
+    {
+      "id": "extension-cookbook",
+      "path": "docs/extension-cookbook.md",
+      "title": "拡張クックブック",
+      "description": "音量調整・進捗バー・シャッフル・CSV出力・設定ファイル・GUI化など機能拡張の具体的な手順集",
+      "tags": ["拡張", "機能追加", "レシピ", "カスタマイズ"],
+      "topics": ["音量調整", "進捗バー", "シャッフル", "出力形式追加", "フォーマット対応", "設定ファイル", "GUI化"],
+      "updatedAt": "2026-03-29"
+    }
+  ]
+}

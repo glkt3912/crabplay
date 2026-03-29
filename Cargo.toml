@@ -1,0 +1,26 @@
+[package]
+name = "crabplay"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rodio = { version = "0.19", default-features = false, features = ["symphonia-mp3", "symphonia-flac"] }
+lofty = "0.21"
+walkdir = "2"
+ratatui = "0.28"
+crossterm = "0.28"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
