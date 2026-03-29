@@ -44,62 +44,62 @@ fn event_loop<B: ratatui::backend::Backend>(
     loop {
         terminal.draw(|f| draw(f, state, &mut list_state))?;
 
-        if event::poll(std::time::Duration::from_millis(200))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind != KeyEventKind::Press {
-                    continue;
+        if event::poll(std::time::Duration::from_millis(200))?
+            && let Event::Key(key) = event::read()?
+        {
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            match key.code {
+                KeyCode::Char('q') => {
+                    player.stop();
+                    break;
                 }
-                match key.code {
-                    KeyCode::Char('q') => {
-                        player.stop();
-                        break;
-                    }
-                    KeyCode::Up => {
-                        state.prev();
-                        list_state.select(Some(state.selected));
-                    }
-                    KeyCode::Down => {
-                        state.next();
-                        list_state.select(Some(state.selected));
-                    }
-                    KeyCode::Enter => {
-                        if let Some(track) = state.current() {
-                            let path = track.path.clone();
-                            if player.load_and_play(&path).is_ok() {
-                                state.player_state = PlayerState::Playing;
-                            }
-                        }
-                    }
-                    KeyCode::Char(' ') => {
-                        player.toggle_pause();
-                        state.player_state = if player.is_paused() {
-                            PlayerState::Paused
-                        } else {
-                            PlayerState::Playing
-                        };
-                    }
-                    KeyCode::Char('n') => {
-                        state.next();
-                        list_state.select(Some(state.selected));
-                        if let Some(track) = state.current() {
-                            let path = track.path.clone();
-                            if player.load_and_play(&path).is_ok() {
-                                state.player_state = PlayerState::Playing;
-                            }
-                        }
-                    }
-                    KeyCode::Char('p') => {
-                        state.prev();
-                        list_state.select(Some(state.selected));
-                        if let Some(track) = state.current() {
-                            let path = track.path.clone();
-                            if player.load_and_play(&path).is_ok() {
-                                state.player_state = PlayerState::Playing;
-                            }
-                        }
-                    }
-                    _ => {}
+                KeyCode::Up => {
+                    state.prev();
+                    list_state.select(Some(state.selected));
                 }
+                KeyCode::Down => {
+                    state.next();
+                    list_state.select(Some(state.selected));
+                }
+                KeyCode::Enter => {
+                    if let Some(track) = state.current() {
+                        let path = track.path.clone();
+                        if player.load_and_play(&path).is_ok() {
+                            state.player_state = PlayerState::Playing;
+                        }
+                    }
+                }
+                KeyCode::Char(' ') => {
+                    player.toggle_pause();
+                    state.player_state = if player.is_paused() {
+                        PlayerState::Paused
+                    } else {
+                        PlayerState::Playing
+                    };
+                }
+                KeyCode::Char('n') => {
+                    state.next();
+                    list_state.select(Some(state.selected));
+                    if let Some(track) = state.current() {
+                        let path = track.path.clone();
+                        if player.load_and_play(&path).is_ok() {
+                            state.player_state = PlayerState::Playing;
+                        }
+                    }
+                }
+                KeyCode::Char('p') => {
+                    state.prev();
+                    list_state.select(Some(state.selected));
+                    if let Some(track) = state.current() {
+                        let path = track.path.clone();
+                        if player.load_and_play(&path).is_ok() {
+                            state.player_state = PlayerState::Playing;
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 
