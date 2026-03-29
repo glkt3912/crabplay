@@ -67,17 +67,17 @@ fn event_loop<B: ratatui::backend::Backend>(
                     if let Some(track) = state.current() {
                         let path = track.path.clone();
                         if player.load_and_play(&path).is_ok() {
-                            state.player_state = PlayerState::Playing;
+                            state.set_playing();
                         }
                     }
                 }
                 KeyCode::Char(' ') => {
                     player.toggle_pause();
-                    state.player_state = if player.is_paused() {
-                        PlayerState::Paused
+                    if player.is_paused() {
+                        state.set_paused();
                     } else {
-                        PlayerState::Playing
-                    };
+                        state.set_playing();
+                    }
                 }
                 KeyCode::Char('n') => {
                     state.next();
@@ -85,7 +85,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                     if let Some(track) = state.current() {
                         let path = track.path.clone();
                         if player.load_and_play(&path).is_ok() {
-                            state.player_state = PlayerState::Playing;
+                            state.set_playing();
                         }
                     }
                 }
@@ -95,7 +95,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                     if let Some(track) = state.current() {
                         let path = track.path.clone();
                         if player.load_and_play(&path).is_ok() {
-                            state.player_state = PlayerState::Playing;
+                            state.set_playing();
                         }
                     }
                 }
@@ -105,7 +105,7 @@ fn event_loop<B: ratatui::backend::Backend>(
 
         // 再生終了を検知して状態を更新
         if matches!(state.player_state, PlayerState::Playing) && player.is_empty() {
-            state.player_state = PlayerState::Stopped;
+            state.set_stopped();
         }
     }
 

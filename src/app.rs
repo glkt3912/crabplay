@@ -36,4 +36,16 @@ impl AppState {
     pub fn current(&self) -> Option<&TrackInfo> {
         self.tracks.get(self.selected)
     }
+
+    pub fn set_playing(&mut self) {
+        self.player_state = PlayerState::Playing;
+    }
+
+    pub fn set_paused(&mut self) {
+        self.player_state = PlayerState::Paused;
+    }
+
+    pub fn set_stopped(&mut self) {
+        self.player_state = PlayerState::Stopped;
+    }
 }
