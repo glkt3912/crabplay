@@ -78,35 +78,56 @@ CLI 引数
 pub struct Player {
     _stream: OutputStream,      // drop されると音が止まるため保持
     _handle: OutputStreamHandle,
-    sink: Arc<Mutex<Sink>>,     // スレッド安全な再生制御
+    sink: Sink,                 // rodio::Sink は内部で Arc<Controls> を持つ
 }
 ```
 
 `rodio` の `OutputStream` はライフタイムと紐づいており、drop されると音声が停止する。
 `_stream` フィールドとして Player に保持することで、Player が生きている間は再生を維持する。
 
-`Sink` を `Arc<Mutex<>>` でラップすることで、TUI スレッドからの排他的な再生制御を実現する。
+`rodio::Sink` のメソッド（`stop`, `append`, `play`, `pause` など）はすべて `&self` を受け取り、
+内部で `Arc<Controls>` による同期を行う。そのため `Mutex` による追加ラップは不要。
 
 ## TUI アーキテクチャ
 
 ```
 ui::tui::run()
   ├── enable_raw_mode()           キーボードの raw モード有効化
+  ├── TerminalGuard（Drop guard） パニック時も必ずターミナルを復元
+  │     └── drop() → disable_raw_mode() + LeaveAlternateScreen + cursor::Show
   ├── Terminal::new()             ratatui ターミナル初期化
   └── event_loop()
         ├── terminal.draw(|f| draw(f, state, list_state))   描画
         └── event::poll(200ms)    キーイベント待機
               └── match key.code
-                    ├── Enter  → Player::load_and_play()
-                    ├── Space  → Player::toggle_pause()
-                    ├── n/p    → AppState::next/prev() + load_and_play()
+                    ├── Enter/n/p → play_current()          再生ヘルパー
+                    │               └── load_and_play() 成功 → set_playing()
+                    │               └── load_and_play() 失敗 → last_error にセット
+                    ├── Space  → Player::toggle_pause() + set_paused/set_playing()
                     ├── ↑/↓   → AppState::next/prev()
                     └── q      → Player::stop() → break
 ```
 
 描画は `draw()` 関数で以下の 2 ペインに分割:
 - **トラックリスト** (上部): `List` ウィジェット、選択行をハイライト
-- **ステータスバー** (下部 3 行): 再生状態・曲名・キーバインド
+- **ステータスバー** (下部 3 行): 再生状態・曲名・キーバインド。エラー発生時は赤色で表示
+
+## AppState の設計
+
+```rust
+pub struct AppState {
+    pub tracks: Vec<TrackInfo>,
+    pub selected: usize,
+    player_state: PlayerState,          // 非公開、遷移メソッド経由で変更
+    pub last_error: Option<String>,     // 直近の再生エラー（次の操作でクリア）
+}
+```
+
+`player_state` は直接書き換え不可。以下のメソッドで遷移する:
+- `set_playing()` / `set_paused()` / `set_stopped()`
+- `player_state()` で読み取り専用アクセス
+
+これにより状態遷移のロジックが TUI 層に漏れることを防ぐ。
 
 ## OutputFormatter トレイト
 
