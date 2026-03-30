@@ -85,7 +85,7 @@ pub struct Player {
 `rodio` の `OutputStream` はライフタイムと紐づいており、drop されると音声が停止する。
 `_stream` フィールドとして Player に保持することで、Player が生きている間は再生を維持する。
 
-`rodio::Sink` のメソッド（`stop`, `append`, `play`, `pause` など）はすべて `&self` を受け取り、
+`rodio::Sink` のメソッド（`stop`, `append`, `play`, `pause`, `get_pos` など）はすべて `&self` を受け取り、
 内部で `Arc<Controls>` による同期を行う。そのため `Mutex` による追加ラップは不要。
 
 ## TUI アーキテクチャ
@@ -97,20 +97,37 @@ ui::tui::run()
   │     └── drop() → disable_raw_mode() + LeaveAlternateScreen + cursor::Show
   ├── Terminal::new()             ratatui ターミナル初期化
   └── event_loop()
-        ├── terminal.draw(|f| draw(f, state, list_state))   描画
+        ├── marquee_offset / marquee_tick  マーキースクロール状態（ローカル変数）
+        ├── terminal.draw(|f| draw(f, state, player, list_state, marquee_offset))
         └── event::poll(200ms)    キーイベント待機
-              └── match key.code
-                    ├── Enter/n/p → play_current()          再生ヘルパー
-                    │               └── load_and_play() 成功 → set_playing()
-                    │               └── load_and_play() 失敗 → last_error にセット
-                    ├── Space  → Player::toggle_pause() + set_paused/set_playing()
-                    ├── ↑/↓   → AppState::next/prev()
-                    └── q      → Player::stop() → break
+              ├── match key.code
+              │     ├── Enter/n/p → play_current()          再生ヘルパー
+              │     │               └── load_and_play() 成功 → set_playing()
+              │     │               └── load_and_play() 失敗 → last_error にセット
+              │     ├── Space  → Player::toggle_pause() + set_paused/set_playing()
+              │     ├── ↑/↓   → AppState::next/prev()
+              │     └── q      → Player::stop() → break
+              ├── 選択変更検知 → marquee_offset / tick リセット
+              ├── 5フレームごと → marquee_offset += 1
+              └── PlayerState::Playing && player.is_empty()
+                    ├── 次トラックあり → next() + play_current() + marquee リセット
+                    └── 最後のトラック → set_stopped()
 ```
 
-描画は `draw()` 関数で以下の 2 ペインに分割:
-- **トラックリスト** (上部): `List` ウィジェット、選択行をハイライト
-- **ステータスバー** (下部 3 行): 再生状態・曲名・キーバインド。エラー発生時は赤色で表示
+描画は `draw()` 関数で 3 ペインに分割:
+- **トラックリスト** (上部 `Constraint::Min(3)`): `List` ウィジェット + `Scrollbar`。選択行ハイライト。長いタイトル・アーティスト名はマーキースクロール。
+- **Now Playing** (中段 `Constraint::Length(3)`): 再生状態・曲名・アーティスト・経過時間 / 合計時間。エラー発生時は赤色で表示。
+- **キーバインド** (下段 `Constraint::Length(3)`): 固定文字列。
+
+### マーキースクロール実装
+
+```
+marquee_slice(s: &str, offset: usize, max_width: usize) -> String
+  ├── chars: Vec<char>  // 文字単位で分割
+  ├── idx = offset % (total + 2)  // 末尾に2文字分の空白を挟んでループ
+  └── unicode_width::UnicodeWidthStr::width() で全角文字の表示幅を考慮しながら
+      max_width に収まるまで文字を追加
+```
 
 ## AppState の設計
 

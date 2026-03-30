@@ -29,7 +29,8 @@ sink.play();
 - `Sink::pause()` / `Sink::play()` で一時停止・再開
 - `Sink::is_paused()` / `Sink::empty()` で状態確認
 - `Sink::set_volume(f32)` で音量調整 (0.0〜1.0)
-- `Sink::get_pos()` (rodio 0.19+) で再生位置取得 → 進捗バーに利用可能
+- `Sink::get_pos() -> Duration` (v0.19+) で再生位置取得 → Now Playing 表示に使用
+- `Sink` は内部で `Arc<Controls>` を使い `&self` で全操作が可能 → `Mutex` ラップ不要
 
 **feature フラグ**:
 
@@ -108,13 +109,13 @@ use ratatui::{
     Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Scrollbar},
 };
 
 terminal.draw(|f| {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(3)])
+        .constraints([Constraint::Min(3), Constraint::Length(3), Constraint::Length(3)])
         .split(f.area());
 
     let list = List::new(items)
@@ -130,6 +131,7 @@ terminal.draw(|f| {
 - `Line` / `Span` でインライン色付きテキストを構築
 - `Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)` でスタイル指定
 - `f.area()` でターミナルサイズ取得
+- `Scrollbar` + `ScrollbarState` でスクロールインジケーター表示
 
 ---
 
@@ -168,10 +170,33 @@ if event::poll(std::time::Duration::from_millis(200))? {
 
 **覚えておくべきポイント**:
 
-- `enable_raw_mode()` は必ず `disable_raw_mode()` とペアで呼ぶ（エラー時も）
+- `enable_raw_mode()` は必ず `disable_raw_mode()` とペアで呼ぶ（エラー時も）→ Drop guard で保証
 - `EnterAlternateScreen` で TUI 専用バッファに切り替え → 終了後に元の画面が復元される
 - `KeyEventKind::Press` でキー押下のみを処理（リリース・リピートを除外）
 - `event::poll(Duration)` でタイムアウト付き待機 → CPU を使い過ぎない
+
+---
+
+## unicode-width (v0.1)
+
+**役割**: 文字列の表示幅（表示列数）を Unicode 規格に基づいて計算する。特にCJK（中日韓）全角文字の扱いに必要。
+
+**使用箇所**: `src/ui/tui.rs` のマーキースクロール処理
+
+```rust
+use unicode_width::UnicodeWidthStr;
+
+// ASCII: 1文字 = 幅1
+// CJK全角: 1文字 = 幅2
+let width = UnicodeWidthStr::width("King Gnu");  // 8
+let width = UnicodeWidthStr::width("米津玄師");   // 8 (4文字 × 幅2)
+```
+
+**覚えておくべきポイント**:
+
+- `str::len()` はバイト数、`str::chars().count()` は文字数を返すが、どちらも**表示幅ではない**
+- 表示幅に基づいてスライスする場合は文字単位でループし、幅を累積する必要がある
+- ratatui が内部で依存しているため、バージョンは 0.1.x に統一する（0.2.x と混在するとトレイト実装の競合が発生）
 
 ---
 
@@ -196,6 +221,13 @@ pub struct Args {
 }
 ```
 
+**覚えておくべきポイント**:
+
+- `short` で `-d`、`long` で `--dir` を自動生成（フィールド名から）
+- `default_value` は文字列、`default_value_t` は型付きの値
+- `#[command(version)]` で `Cargo.toml` の `version` を `--version` に自動反映
+- `derive` feature が必要 (`clap = { version = "4", features = ["derive"] }`)
+
 ---
 
 ## anyhow / thiserror
@@ -212,6 +244,11 @@ fn scan_directory(dir: &Path) -> Result<Vec<PathBuf>, AppError>
 // アプリ層: .context() で文脈を付加
 let paths = scan_directory(&args.dir).context("directory scan failed")?;
 ```
+
+**使い分けの指針**:
+
+- ライブラリ・モジュール境界では `AppError` を使い、呼び出し元がエラーを識別・ハンドリングできるようにする
+- `main.rs` など最終的にエラーを表示するだけの層では `anyhow::Result` で統一し、`.context()` で情報を追記する
 
 ---
 
