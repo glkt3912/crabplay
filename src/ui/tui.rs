@@ -58,7 +58,7 @@ fn event_loop<B: ratatui::backend::Backend>(
     list_state.select(Some(state.selected));
 
     loop {
-        terminal.draw(|f| draw(f, state, &mut list_state))?;
+        terminal.draw(|f| draw(f, state, player, &mut list_state))?;
 
         if event::poll(std::time::Duration::from_millis(200))?
             && let Event::Key(key) = event::read()?
@@ -125,7 +125,7 @@ fn play_current(state: &mut AppState, player: &Player) {
     }
 }
 
-fn draw(f: &mut ratatui::Frame, state: &AppState, list_state: &mut ListState) {
+fn draw(f: &mut ratatui::Frame, state: &AppState, player: &Player, list_state: &mut ListState) {
     // 3分割レイアウト: トラックリスト / 再生情報 / キーバインド
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -195,8 +195,18 @@ fn draw(f: &mut ratatui::Frame, state: &AppState, list_state: &mut ListState) {
             PlayerState::Paused => "⏸",
             PlayerState::Stopped => "■",
         };
+        let pos = player.get_pos();
+        let elapsed = format!("{}:{:02}", pos.as_secs() / 60, pos.as_secs() % 60);
+        let total = format!(
+            "{}:{:02}",
+            track.duration_secs / 60,
+            track.duration_secs % 60
+        );
         (
-            format!(" {} {} — {}", status, track.title, track.artist),
+            format!(
+                " {} {} — {}  [{} / {}]",
+                status, track.title, track.artist, elapsed, total
+            ),
             Color::Yellow,
         )
     } else {

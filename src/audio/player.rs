@@ -52,4 +52,8 @@ impl Player {
     pub fn stop(&self) {
         self.sink.stop();
     }
+
+    pub fn get_pos(&self) -> std::time::Duration {
+        self.sink.get_pos()
+    }
 }
