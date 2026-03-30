@@ -232,7 +232,11 @@ fn draw(
             } else {
                 &t.artist
             };
-            let marker = if state.playing_index() == Some(i) { "▶ " } else { "  " };
+            let marker = if state.playing_index() == Some(i) {
+                "▶ "
+            } else {
+                "  "
+            };
 
             let (title_str, artist_str) = if i == state.selected {
                 // 選択中: 表示幅を超える場合にマーキー
