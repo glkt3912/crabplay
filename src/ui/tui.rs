@@ -1,5 +1,6 @@
 use anyhow::Result;
 use crossterm::{
+    cursor,
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
@@ -17,19 +18,31 @@ use std::io;
 use crate::app::{AppState, PlayerState};
 use crate::audio::player::Player;
 
+/// パニック時も含めてターミナルを必ず復元するガード型。
+struct TerminalGuard;
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), LeaveAlternateScreen, cursor::Show);
+    }
+}
+
 pub fn run(state: &mut AppState, player: &Player) -> Result<()> {
     enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
+    execute!(io::stdout(), EnterAlternateScreen)?;
+
+    // _guard がスコープを抜けると（正常終了・エラー・パニック問わず）
+    // Drop が呼ばれてターミナルが復元される
+    let _guard = TerminalGuard;
+
+    let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
+    terminal.hide_cursor()?;
 
     let result = event_loop(&mut terminal, state, player);
 
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
-
     result
 }
 
