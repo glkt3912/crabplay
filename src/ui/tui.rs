@@ -77,14 +77,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                     list_state.select(Some(state.selected));
                 }
                 KeyCode::Enter => {
-                    state.last_error = None;
-                    if let Some(track) = state.current() {
-                        let path = track.path.clone();
-                        match player.load_and_play(&path) {
-                            Ok(_) => state.set_playing(),
-                            Err(e) => state.last_error = Some(e.to_string()),
-                        }
-                    }
+                    play_current(state, player);
                 }
                 KeyCode::Char(' ') => {
                     state.last_error = None;
@@ -96,28 +89,14 @@ fn event_loop<B: ratatui::backend::Backend>(
                     }
                 }
                 KeyCode::Char('n') => {
-                    state.last_error = None;
                     state.next();
                     list_state.select(Some(state.selected));
-                    if let Some(track) = state.current() {
-                        let path = track.path.clone();
-                        match player.load_and_play(&path) {
-                            Ok(_) => state.set_playing(),
-                            Err(e) => state.last_error = Some(e.to_string()),
-                        }
-                    }
+                    play_current(state, player);
                 }
                 KeyCode::Char('p') => {
-                    state.last_error = None;
                     state.prev();
                     list_state.select(Some(state.selected));
-                    if let Some(track) = state.current() {
-                        let path = track.path.clone();
-                        match player.load_and_play(&path) {
-                            Ok(_) => state.set_playing(),
-                            Err(e) => state.last_error = Some(e.to_string()),
-                        }
-                    }
+                    play_current(state, player);
                 }
                 _ => {}
             }
@@ -130,6 +109,17 @@ fn event_loop<B: ratatui::backend::Backend>(
     }
 
     Ok(())
+}
+
+fn play_current(state: &mut AppState, player: &Player) {
+    state.last_error = None;
+    if let Some(track) = state.current() {
+        let path = track.path.clone();
+        match player.load_and_play(&path) {
+            Ok(_) => state.set_playing(),
+            Err(e) => state.last_error = Some(e.to_string()),
+        }
+    }
 }
 
 fn draw(f: &mut ratatui::Frame, state: &AppState, list_state: &mut ListState) {
