@@ -145,7 +145,7 @@ fn event_loop<B: ratatui::backend::Backend>(
 
 fn play_current(state: &mut AppState, player: &Player) {
     state.last_error = None;
-    if let Some(track) = state.current() {
+    if let Some(track) = state.tracks.get(state.selected) {
         let path = track.path.clone();
         match player.load_and_play(&path) {
             Ok(_) => state.set_playing(),
@@ -190,6 +190,11 @@ fn marquee_slice(s: &str, offset: usize, max_width: usize) -> String {
         }
     }
 
+    // 全角文字が境界で収まらなかった場合など、max_width に満たない分を空白で埋める
+    while UnicodeWidthStr::width(result.as_str()) < max_width {
+        result.push(' ');
+    }
+
     result
 }
 
@@ -227,7 +232,11 @@ fn draw(
             } else {
                 &t.artist
             };
-            let marker = if i == state.selected { "▶ " } else { "  " };
+            let marker = if state.playing_index() == Some(i) {
+                "▶ "
+            } else {
+                "  "
+            };
 
             let (title_str, artist_str) = if i == state.selected {
                 // 選択中: 表示幅を超える場合にマーキー
