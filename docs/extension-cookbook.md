@@ -11,11 +11,11 @@ crabplay に機能を追加する際の具体的な手順集。
 ```rust
 // src/audio/player.rs
 pub fn set_volume(&self, volume: f32) {
-    self.sink.lock().unwrap().set_volume(volume.clamp(0.0, 1.0));
+    self.sink.set_volume(volume.clamp(0.0, 1.0));
 }
 
 pub fn volume(&self) -> f32 {
-    self.sink.lock().unwrap().volume()
+    self.sink.volume()
 }
 ```
 
@@ -31,23 +31,17 @@ KeyCode::Char('-') => player.set_volume(player.volume() - 0.1),
 
 ## 2. 進捗バーを表示する
 
-**変更ファイル**: `src/audio/player.rs`, `src/ui/tui.rs`
+**変更ファイル**: `src/ui/tui.rs`
 
-```rust
-// src/audio/player.rs
-pub fn position_secs(&self) -> u64 {
-    self.sink.lock().unwrap().get_pos().as_secs()
-}
-```
-
-TUI の描画に `Gauge` ウィジェットを追加:
+`Player::get_pos()` はすでに実装済み。TUI の描画に `Gauge` ウィジェットを追加する:
 
 ```rust
 // src/ui/tui.rs
 use ratatui::widgets::Gauge;
 
+let pos_secs = player.get_pos().as_secs();
 let progress = if track.duration_secs > 0 {
-    player.position_secs() as f64 / track.duration_secs as f64
+    pos_secs as f64 / track.duration_secs as f64
 } else {
     0.0
 };
@@ -57,6 +51,8 @@ let gauge = Gauge::default()
     .gauge_style(Style::default().fg(Color::Green))
     .ratio(progress.min(1.0));
 ```
+
+レイアウトに `Constraint::Length(3)` のペインを追加して `f.render_widget(gauge, chunks[N])` で描画する。
 
 ---
 
@@ -78,7 +74,8 @@ pub struct AppState {
     pub order: Vec<usize>,    // 再生順序
     pub queue_pos: usize,
     pub shuffle: bool,
-    pub player_state: PlayerState,
+    player_state: PlayerState,
+    pub last_error: Option<String>,
 }
 
 impl AppState {

@@ -6,28 +6,28 @@
       "id": "architecture",
       "path": "docs/architecture.md",
       "title": "アーキテクチャ",
-      "description": "モジュール依存関係、データフロー、エラーハンドリング設計、TUI構造、AppState設計、OutputFormatterトレイトの解説",
+      "description": "モジュール依存関係、データフロー、エラーハンドリング設計、TUI構造、AppState設計、マーキースクロール実装、自動次曲再生ロジック",
       "tags": ["設計", "アーキテクチャ", "モジュール", "TUI", "オーディオ"],
-      "topics": ["モジュール構成", "エラーハンドリング", "データフロー", "再生エンジン", "TUIアーキテクチャ", "AppState", "TerminalGuard"],
+      "topics": ["モジュール構成", "エラーハンドリング", "データフロー", "再生エンジン", "TUIアーキテクチャ", "AppState", "TerminalGuard", "マーキー", "自動次曲"],
       "updatedAt": "2026-03-30"
     },
     {
       "id": "crate-guide",
       "path": "docs/crate-guide.md",
       "title": "クレートガイド",
-      "description": "rodio/lofty/walkdir/ratatui/crossterm など各依存クレートの役割・使い方・注意点",
-      "tags": ["クレート", "依存関係", "rodio", "ratatui", "lofty"],
-      "topics": ["rodio", "lofty", "walkdir", "ratatui", "crossterm", "clap", "anyhow", "thiserror", "serde"],
-      "updatedAt": "2026-03-29"
+      "description": "rodio/lofty/walkdir/ratatui/crossterm/unicode-width など各依存クレートの役割・使い方・注意点",
+      "tags": ["クレート", "依存関係", "rodio", "ratatui", "lofty", "unicode-width"],
+      "topics": ["rodio", "lofty", "walkdir", "ratatui", "crossterm", "unicode-width", "clap", "anyhow", "thiserror", "serde"],
+      "updatedAt": "2026-03-30"
     },
     {
       "id": "development",
       "path": "docs/development.md",
       "title": "開発ガイド",
-      "description": "セットアップ、動作確認、テスト方法、よくあるエラーとその解決策、リリースビルド手順",
-      "tags": ["開発", "セットアップ", "テスト", "デバッグ", "CI"],
-      "topics": ["セットアップ", "動作確認", "テスト", "CI", "よくあるエラー", "リリースビルド"],
-      "updatedAt": "2026-03-29"
+      "description": "セットアップ、グローバルインストール、動作確認、テスト方法、よくあるエラーとその解決策、リリースビルド手順",
+      "tags": ["開発", "セットアップ", "テスト", "デバッグ", "CI", "インストール"],
+      "topics": ["セットアップ", "cargo install", "動作確認", "テスト", "CI", "よくあるエラー", "リリースビルド"],
+      "updatedAt": "2026-03-30"
     },
     {
       "id": "extension-cookbook",
@@ -36,7 +36,16 @@
       "description": "音量調整・進捗バー・シャッフル・CSV出力・設定ファイル・GUI化など機能拡張の具体的な手順集",
       "tags": ["拡張", "機能追加", "レシピ", "カスタマイズ"],
       "topics": ["音量調整", "進捗バー", "シャッフル", "出力形式追加", "フォーマット対応", "設定ファイル", "GUI化"],
-      "updatedAt": "2026-03-29"
+      "updatedAt": "2026-03-30"
+    },
+    {
+      "id": "library-deep-dive",
+      "path": "docs/library-deep-dive.md",
+      "title": "ライブラリ詳細解説",
+      "description": "rodio/ratatui/crossterm/unicode-width/lofty/clap/anyhow/serde の内部設計・選定理由・重要概念の深掘り解説",
+      "tags": ["ライブラリ", "内部設計", "詳細解説", "アーキテクチャ"],
+      "topics": ["rodio内部構造", "Sink", "OutputStream", "ratatui即時描画", "Layoutシステム", "crossterm rawモード", "AlternateScreen", "unicode幅", "loftyタグ", "clapderive", "anyhow+thiserror", "serde"],
+      "updatedAt": "2026-03-30"
     }
   ]
 }

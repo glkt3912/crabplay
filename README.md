@@ -9,6 +9,9 @@ macOS (Apple Silicon) 向けローカル音楽プレイヤー。
 - **MP3 / FLAC 対応**: symphonia による Pure Rust デコード（外部 C ライブラリ不要）
 - **メタデータ表示**: lofty でタイトル・アーティスト・アルバム・再生時間を取得
 - **TUI**: ratatui によるキーボード操作インターフェース
+- **再生時間表示**: Now Playing ペインに経過時間 / 合計時間をリアルタイム表示
+- **マーキースクロール**: 列幅を超えるタイトル・アーティスト名を選択中に自動スクロール
+- **自動次曲再生**: 曲が終わると自動的に次のトラックを再生
 - **リスト出力モード**: TUI を起動せず text / JSON 形式でトラック一覧を出力
 
 ## プロジェクト構成
@@ -33,23 +36,34 @@ src/
 
 ## インストール
 
+### グローバルインストール（推奨）
+
 ```bash
 git clone <repository-url>
 cd crabplay
+cargo install --path .
+```
+
+インストール後はどこからでも `crabplay` コマンドで起動できる（`~/.cargo/bin/` にバイナリが配置される）。
+
+### ビルドのみ
+
+```bash
 cargo build --release
+# バイナリ: target/release/crabplay
 ```
 
 ## 使い方
 
 ```bash
 # TUI を起動（~/Music を対象）
-cargo run -- --dir ~/Music
+crabplay --dir ~/Music
 
 # トラック一覧のみ表示（TUI なし）
-cargo run -- --dir ~/Music --list
+crabplay --dir ~/Music --list
 
 # JSON 形式で出力
-cargo run -- --dir ~/Music --list --format json
+crabplay --dir ~/Music --list --format json
 ```
 
 ### オプション一覧
@@ -69,8 +83,8 @@ cargo run -- --dir ~/Music --list --format json
 | `↑` / `↓` | トラック選択 |
 | `Enter` | 選択曲を再生 |
 | `Space` | 再生 / 一時停止 |
-| `n` | 次の曲 |
-| `p` | 前の曲 |
+| `n` | 次の曲へスキップして再生 |
+| `p` | 前の曲へスキップして再生 |
 | `q` | 終了 |
 
 ## 開発
@@ -91,22 +105,28 @@ cargo build --release
 
 ## 技術スタック
 
-| クレート | 用途 |
-|---|---|
-| `rodio` v0.19 | 音声再生 (CoreAudio via cpal) |
-| `symphonia` | MP3 / FLAC デコード |
-| `lofty` v0.21 | メタデータ読み取り |
-| `walkdir` v2 | ディレクトリ再帰スキャン |
-| `ratatui` v0.28 | TUI フレームワーク |
-| `crossterm` v0.28 | ターミナル制御 |
-| `clap` v4 | CLI 引数定義 |
-| `anyhow` / `thiserror` | エラーハンドリング |
-| `serde` / `serde_json` | JSON 出力 |
+| クレート | バージョン | 用途 |
+|---|---|---|
+| `rodio` | 0.19 | 音声再生 (CoreAudio via cpal) |
+| `symphonia` | — | MP3 / FLAC Pure Rust デコード (rodio 経由) |
+| `lofty` | 0.21 | メタデータ (ID3/VorbisComment) 読み取り |
+| `walkdir` | 2 | ディレクトリ再帰スキャン |
+| `ratatui` | 0.28 | TUI フレームワーク |
+| `crossterm` | 0.28 | ターミナル制御・キーイベント |
+| `unicode-width` | 0.1 | CJK 全角文字対応の表示幅計算 |
+| `clap` | 4 | CLI 引数定義・ヘルプ生成 |
+| `anyhow` | 1 | アプリ層エラーハンドリング |
+| `thiserror` | 2 | ライブラリ層エラー型定義 |
+| `serde` / `serde_json` | 1 | JSON 出力 |
+
+詳細は [docs/crate-guide.md](docs/crate-guide.md) および [docs/library-deep-dive.md](docs/library-deep-dive.md) を参照。
 
 ## 拡張ガイド
 
-- **音量調整**: `Sink::set_volume(f32)` を Player に追加
-- **シャッフル**: `rand` クレートで AppState 内の順序をシャッフル
-- **進捗バー**: `Sink::get_pos()` (rodio 0.19+) で再生位置を取得
-- **プレイリスト**: `AppState` に `Vec<usize>` で順序を管理
+具体的な実装手順は [docs/extension-cookbook.md](docs/extension-cookbook.md) を参照。
+
+- **音量調整**: `Sink::set_volume(f32)` を Player に追加し、`+` / `-` キーにバインド
+- **シャッフル**: `rand` クレートで AppState 内の再生順序をシャッフル
+- **対応フォーマット追加**: `Cargo.toml` に symphonia feature を追加、scanner の拡張子リストを更新
+- **設定ファイル**: `dirs` + `toml` で `~/.config/crabplay/config.toml` をサポート
 - **GUI 化**: `ui/` モジュールを `iced` 実装に差し替え
