@@ -11,7 +11,10 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{
+        Block, Borders, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
+        ScrollbarState,
+    },
 };
 use std::io;
 
@@ -123,9 +126,14 @@ fn play_current(state: &mut AppState, player: &Player) {
 }
 
 fn draw(f: &mut ratatui::Frame, state: &AppState, list_state: &mut ListState) {
+    // 3分割レイアウト: トラックリスト / 再生情報 / キーバインド
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(3)])
+        .constraints([
+            Constraint::Min(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+        ])
         .split(f.area());
 
     // トラックリスト
@@ -168,9 +176,19 @@ fn draw(f: &mut ratatui::Frame, state: &AppState, list_state: &mut ListState) {
 
     f.render_stateful_widget(list, chunks[0], list_state);
 
-    // ステータスバー（エラーがある場合は赤色で表示）
-    let (status_text, status_color) = if let Some(ref err) = state.last_error {
-        (format!(" ⚠ {err}"), Color::Red)
+    // スクロールバー
+    let total = state.tracks.len();
+    if total > 0 {
+        let mut scrollbar_state = ScrollbarState::new(total).position(state.selected);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("↑"))
+            .end_symbol(Some("↓"));
+        f.render_stateful_widget(scrollbar, chunks[0], &mut scrollbar_state);
+    }
+
+    // 再生情報ペイン
+    let (now_playing, np_color) = if let Some(ref err) = state.last_error {
+        (format!(" ⚠  {err}"), Color::Red)
     } else if let Some(track) = state.current() {
         let status = match state.player_state() {
             PlayerState::Playing => "▶",
@@ -178,22 +196,29 @@ fn draw(f: &mut ratatui::Frame, state: &AppState, list_state: &mut ListState) {
             PlayerState::Stopped => "■",
         };
         (
-            format!(
-                " {} {} — {}  [↑↓] select  [Enter] play  [Space] pause  [n/p] skip  [q] quit",
-                status, track.title, track.artist
-            ),
+            format!(" {} {} — {}", status, track.title, track.artist),
             Color::Yellow,
         )
     } else {
-        (
-            " [↑↓] select  [Enter] play  [q] quit".to_string(),
-            Color::Yellow,
-        )
+        (" ■  No track selected".to_string(), Color::DarkGray)
     };
 
-    let status = Paragraph::new(status_text)
-        .block(Block::default().borders(Borders::ALL))
-        .style(Style::default().fg(status_color));
+    let now_playing_widget = Paragraph::new(now_playing)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Now Playing "),
+        )
+        .style(Style::default().fg(np_color));
 
-    f.render_widget(status, chunks[1]);
+    f.render_widget(now_playing_widget, chunks[1]);
+
+    // キーバインドペイン（固定）
+    let keybinds = Paragraph::new(
+        " [↑↓] select   [Enter] play   [Space] pause   [n] next   [p] prev   [q] quit",
+    )
+    .block(Block::default().borders(Borders::ALL))
+    .style(Style::default().fg(Color::DarkGray));
+
+    f.render_widget(keybinds, chunks[2]);
 }
