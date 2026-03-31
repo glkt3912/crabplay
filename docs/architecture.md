@@ -89,6 +89,9 @@ pub struct Player {
 `rodio::Sink` のメソッド（`stop`, `append`, `play`, `pause`, `get_pos` など）はすべて `&self` を受け取り、
 内部で `Arc<Controls>` による同期を行う。そのため `Mutex` による追加ラップは不要。
 
+`toggle_pause()` はポーズ/再開を切り替え、**切り替え後の状態（`true` = ポーズ中）** を返す。
+呼び出し側は戻り値だけで `set_paused()` / `set_resumed()` を選択できるため、直後に `is_paused()` を呼ぶ二段階同期が不要。
+
 ## TUI アーキテクチャ
 
 ```
@@ -99,27 +102,32 @@ ui::tui::run()
   ├── Terminal::new()             ratatui ターミナル初期化
   └── event_loop()
         ├── marquee_offset / marquee_tick  マーキースクロール状態（ローカル変数）
-        ├── terminal.draw(|f| draw(f, state, player, list_state, marquee_offset))
+        ├── queue_badge_map / queue_dirty  バッジキャッシュ（キュー変更時のみ再計算）
+        ├── 各フレーム先頭で:
+        │     ├── tick_error_timeout()  5秒以上経過した last_error を自動クリア
+        │     └── queue_dirty == true なら queue_badge_map を再計算してフラグをリセット
+        ├── terminal.draw(|f| draw(f, ..., &queue_badge_map))
         └── event::poll(200ms)    キーイベント待機
               ├── clear_messages()  ← 全キーイベントの先頭で実行
               ├── match key.code
               │     ├── Enter/n/p → play_current()             再生ヘルパー
-              │     │               └── load_and_play() 成功 → set_playing()
-              │     │               └── load_and_play() 失敗 → last_error にセット + set_stopped()
-              │     ├── Space  → Player::toggle_pause()
-              │     │           ├── paused  → set_paused()
-              │     │           └── resumed → set_resumed()  ※playing_index は変えない
+              │     │               └── load_and_play() 成功 → set_playing()（playback_started_at を記録）
+              │     │               └── load_and_play() 失敗 → set_error() + set_stopped()
+              │     ├── Space  → Player::toggle_pause() → bool 戻り値で分岐
+              │     │           ├── true  → set_paused()
+              │     │           └── false → set_resumed()  ※playing_index は変えない
               │     ├── ↑/↓   → AppState::next/prev()
-              │     ├── a      → enqueue_selected() → info_msg にキュー件数表示
-              │     ├── c      → clear_queue() → info_msg に "Queue cleared"
+              │     ├── a      → enqueue_selected() + queue_dirty = true → info_msg にキュー件数
+              │     ├── c      → clear_queue() + queue_dirty = true → info_msg に "Queue cleared"
               │     ├── r      → cycle_repeat() → info_msg にモード表示
-              │     ├── s      → save_playlist() → 保存先パスを info_msg / エラーを last_error
+              │     ├── s      → save_playlist() → 保存先パスを info_msg / set_error() でエラー記録
               │     └── q      → Player::stop() → break
               ├── 選択変更検知 → marquee_offset / tick リセット
               ├── 5フレームごと → marquee_offset += 1
-              └── rodio::Sink::empty() == true（= 再生バッファ空 = トラック完了）
+              └── is_playback_settled() && rodio::Sink::empty()（再生バッファ空 = トラック完了）
+                    ├── ※ is_playback_settled(): load_and_play 直後 500ms は is_empty() 誤検知を防ぐ
                     ├── clear_messages()
-                    ├── advance() == true → play_current() + marquee リセット
+                    ├── advance() == true → queue_dirty = true + play_current() + marquee リセット
                     └── advance() == false → set_stopped()
 ```
 
@@ -133,13 +141,19 @@ ui::tui::run()
 
 ```
 marquee_slice(s: &str, offset: usize, max_width: usize) -> String
-  ├── chars: Vec<char>  // 文字単位で分割
-  ├── idx = offset % (total + 2)  // 末尾に2文字分の空白を挟んでループ
-  └── while width < max_width:
-        unicode_width::UnicodeWidthStr::width() で全角文字の表示幅を測りながら
-        width + ch_width > max_width なら break、そうでなければ追加
-        ※ ループ条件を幅ベースにすることで全角文字の境界を正確に処理する
+  ├── col_table: Vec<(累積開始列, char, 表示幅)>  // 各文字の表示列情報を事前計算
+  ├── total_disp = Σ 表示幅          // 文字列全体の表示幅（列数）
+  ├── loop_disp = total_disp + 2     // ループ幅 = 表示幅 + 2列の空白ギャップ
+  ├── start_col = offset % loop_disp // offset は表示列単位（1増加 = 1列スクロール）
+  └── while out_width < max_width:
+        col % loop_disp が total_disp 以上 → 空白（ギャップ領域）
+        それ以外 → col_table を線形探索してその列の文字を出力
+        ※ offset を表示列ベースにすることで CJK 全角文字（1char = 2列）でも
+          ASCII と同じ速度でスクロールする（旧実装: chars.len() ベースで 2 倍速になっていた）
 ```
+
+**CJK 対応パディング (`pad_display`):**  
+`format!("{:<N}", s)` は char 単位でパディングするため、全角文字を含む文字列では実際の表示列数が `N` を超える。`pad_display(s, width)` は `UnicodeWidthStr::width()` で表示幅を計算し、過不足なく `width` 列に揃える。マーキーを使わない非選択行のタイトル・アーティスト列に適用。
 
 ## AppState の設計
 
@@ -147,11 +161,13 @@ marquee_slice(s: &str, offset: usize, max_width: usize) -> String
 pub struct AppState {
     pub tracks: Vec<TrackInfo>,
     pub selected: usize,
-    player_state: PlayerState,   // 非公開、遷移メソッド経由で変更
+    player_state: PlayerState,       // 非公開、遷移メソッド経由で変更
     pub last_error: Option<String>,
+    error_since: Option<Instant>,    // last_error の表示開始時刻（5秒タイムアウト用）
     pub info_msg: Option<String>,
-    queue: VecDeque<usize>,      // 非公開、アクセサ経由で操作
+    queue: VecDeque<usize>,          // 非公開、アクセサ経由で操作
     pub repeat: RepeatMode,
+    playback_started_at: Option<Instant>, // is_empty() 誤検知防止の再生開始時刻
 }
 ```
 
@@ -159,14 +175,18 @@ pub struct AppState {
 
 | メソッド | 役割 |
 |---------|------|
-| `set_playing()` | 新規再生開始。`selected` を `playing_index` に設定 |
-| `set_resumed()` | ポーズ解除。`playing_index` は変えず状態だけ `Playing` に戻す |
-| `set_paused()` / `set_stopped()` | 状態遷移 |
+| `set_playing()` | 新規再生開始。`selected` を `playing_index` に設定。`playback_started_at` を記録 |
+| `set_resumed()` | ポーズ解除。`playing_index` は変えず状態だけ `Playing` に戻す。`playback_started_at` を更新 |
+| `set_paused()` / `set_stopped()` | 状態遷移。`playback_started_at` をクリア |
+| `is_playback_settled()` | 再生開始から 500ms 以上経過したか。`is_empty()` の誤検知ガード |
+| `set_error(msg)` | `last_error` をセットし `error_since` に現在時刻を記録 |
+| `tick_error_timeout()` | `error_since` から 5秒以上経過していれば `last_error` を自動クリア |
+| `clear_messages()` | `last_error` / `error_since` / `info_msg` を全クリア |
 | `player_state()` | 読み取り専用アクセス |
 | `enqueue_selected()` / `clear_queue()` | キュー操作 |
 | `queue_len()` / `queue_is_empty()` / `queue_paths()` | キュー参照（読み取り専用） |
-| `queue_positions_for(track_index)` | 指定インデックスがキューの何番目にあるかを `Vec<usize>`（1始まり）で返す。重複登録時は複数の位置を含む。最大3件に制限 |
-| `queue_badge_map()` | トラックインデックス → キュー内位置リストの `HashMap<usize, Vec<usize>>` を O(Q) で構築して返す。`draw()` がフレームごとに1回だけ呼び出し、O(N×Q) の繰り返し走査を回避する |
+| `queue_positions_for(track_index)` | 指定インデックスがキューの何番目にあるかを `Vec<usize>`（1始まり）で返す。最大3件に制限 |
+| `queue_badge_map()` | トラックインデックス → キュー内位置リストの `HashMap<usize, Vec<usize>>` を O(Q) で構築 |
 
 `set_playing()` と `set_resumed()` を分けることで、ポーズ中にカーソルを別トラックへ移動してもポーズ解除時に ▶ マーカーがずれない。
 
@@ -174,13 +194,15 @@ pub struct AppState {
 
 ```
 advance() の優先順位:
-  1. RepeatMode::One  → キューを消費せず selected をそのまま（同じトラックをリピート）
+  1. RepeatMode::One  → playing_index のトラックをリピート。selected を playing_index に戻す
+                        ※ 再生中にカーソルが移動しても元のトラックに戻る。キューは消費しない
   2. queue に項目あり → pop_front() した index を selected にセット
   3. RepeatMode::All  → (selected + 1) % tracks.len()
   4. RepeatMode::Off  → selected + 1（末尾なら false を返して停止）
 ```
 
-RepeatMode::One を最優先にすることで、1曲リピート中にキューへ追加した曲が割り込まない。
+RepeatMode::One を最優先にすることで、1曲リピート中にキューへ追加した曲が割り込まない。  
+`selected` を `playing_index` に戻す処理により、カーソル操作後も確実に同じトラックが再生される。  
 メッセージのクリアは `advance()` ではなく呼び出し側（TUI の auto-advance ブロック）の責務とする。
 
 ### キュー位置バッジ
@@ -209,7 +231,7 @@ RepeatMode::One を最優先にすることで、1曲リピート中にキュー
 幅を固定することで、ターミナル幅が狭い場合でも末尾から自然に切り詰められ、タイトル・アーティストなどの主要情報が保護される。
 
 **パフォーマンス設計:**  
-`draw()` はフレームごとに `queue_badge_map: &HashMap<usize, Vec<usize>>` を受け取る。呼び出し元 `event_loop` で `state.queue_badge_map()` を1回だけ呼び出してキャッシュし、トラックリストループ内は `map.get(&i)` の O(1) 参照のみ行う（旧来の O(N×Q) 走査を廃止）。
+`draw()` はフレームごとに `queue_badge_map: &HashMap<usize, Vec<usize>>` を受け取る。`event_loop` は `queue_dirty` フラグでキュー変更を検知し、`enqueue_selected` / `clear_queue` / `advance` 時のみ `queue_badge_map()` を再計算する。毎フレームの HashMap アロケートを廃止し、トラックリストループ内は `map.get(&i)` の O(1) 参照のみ行う。
 
 ### Playlist モジュール
 
@@ -221,7 +243,7 @@ pub struct Playlist {
 }
 ```
 
-- `save(&dir)` — ファイル名を ASCII 英数字・`-`・`_` のみにサニタイズして `dir/<name>.json` に保存。サニタイズ後が空文字になる場合はエラーを返す
+- `save(&dir)` — ファイル名を ASCII 英数字・`-`・`_` のみにサニタイズして `dir/<name>.json` に保存。サニタイズ後が空文字になる場合はエラーを返す。TUI から呼ぶ際のファイル名は `playlist_<SEC>_<MS>.json`（サブ秒精度）で同一秒内の上書きを防止
 - `load(&path)` — JSON ファイルから復元
 - `default_dir()` — `XDG_CONFIG_HOME` → `HOME/.config` → `.` の優先順で解決し、`crabplay/playlists/` を付加して返す
 
