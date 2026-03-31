@@ -6,9 +6,9 @@
       "id": "architecture",
       "path": "docs/architecture.md",
       "title": "アーキテクチャ",
-      "description": "モジュール依存関係、データフロー、エラーハンドリング設計、TUI構造、AppState設計（queue非公開/アクセサ/set_resumed含む）、キュー位置バッジ表示、advance()優先順位、Playlistモジュール（XDG対応）、マーキースクロール実装",
+      "description": "モジュール依存関係、データフロー、エラーハンドリング設計、TUI構造、AppState設計（queue非公開/アクセサ/set_resumed含む）、キュー位置バッジ表示（queue_badge_map O(Q)キャッシュ・バッジ切り詰め）、advance()優先順位、Playlistモジュール（XDG対応）、マーキースクロール実装",
       "tags": ["設計", "アーキテクチャ", "モジュール", "TUI", "オーディオ", "プレイリスト"],
-      "topics": ["モジュール構成", "エラーハンドリング", "データフロー", "再生エンジン", "TUIアーキテクチャ", "AppState", "TerminalGuard", "マーキー", "自動次曲", "キュー", "キューバッジ", "RepeatMode", "Playlist", "XDG", "set_resumed", "advance優先順位"],
+      "topics": ["モジュール構成", "エラーハンドリング", "データフロー", "再生エンジン", "TUIアーキテクチャ", "AppState", "TerminalGuard", "マーキー", "自動次曲", "キュー", "キューバッジ", "queue_badge_map", "RepeatMode", "Playlist", "XDG", "set_resumed", "advance優先順位"],
       "updatedAt": "2026-03-31"
     },
     {

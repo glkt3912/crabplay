@@ -165,7 +165,8 @@ pub struct AppState {
 | `player_state()` | 読み取り専用アクセス |
 | `enqueue_selected()` / `clear_queue()` | キュー操作 |
 | `queue_len()` / `queue_is_empty()` / `queue_paths()` | キュー参照（読み取り専用） |
-| `queue_positions_for(track_index)` | 指定インデックスがキューの何番目にあるかを `Vec<usize>`（1始まり）で返す。重複登録時は複数の位置を含む |
+| `queue_positions_for(track_index)` | 指定インデックスがキューの何番目にあるかを `Vec<usize>`（1始まり）で返す。重複登録時は複数の位置を含む。最大3件に制限 |
+| `queue_badge_map()` | トラックインデックス → キュー内位置リストの `HashMap<usize, Vec<usize>>` を O(Q) で構築して返す。`draw()` がフレームごとに1回だけ呼び出し、O(N×Q) の繰り返し走査を回避する |
 
 `set_playing()` と `set_resumed()` を分けることで、ポーズ中にカーソルを別トラックへ移動してもポーズ解除時に ▶ マーカーがずれない。
 
@@ -200,10 +201,15 @@ RepeatMode::One を最優先にすることで、1曲リピート中にキュー
 |------|--------|
 | キューなし | `"      "` (空白 6 文字) |
 | 1 箇所 | `"[1]   "` |
-| 2 箇所かつ両方 1 桁 | `"[1,3] "` |
+| 2 箇所かつ両方 1 桁 | `"[1,3] "` (`[x,y]` は 5 文字。両方 1 桁のときのみ `BADGE_WIDTH` に収まる) |
 | それ以外（3 箇所以上 or 2 桁以上） | `"[1+2] "` (先頭位置 + 残り件数) |
 
+文字列生成後に `.chars().take(BADGE_WIDTH)` で切り詰め、`format!("{:<6}", ...)` でパディングする。これにより `p1` や残り件数が 2 桁以上になっても `BADGE_WIDTH` を超えない。
+
 幅を固定することで、ターミナル幅が狭い場合でも末尾から自然に切り詰められ、タイトル・アーティストなどの主要情報が保護される。
+
+**パフォーマンス設計:**  
+`draw()` はフレームごとに `queue_badge_map: &HashMap<usize, Vec<usize>>` を受け取る。呼び出し元 `event_loop` で `state.queue_badge_map()` を1回だけ呼び出してキャッシュし、トラックリストループ内は `map.get(&i)` の O(1) 参照のみ行う（旧来の O(N×Q) 走査を廃止）。
 
 ### Playlist モジュール
 
