@@ -167,22 +167,19 @@ impl AppState {
             self.selected = idx;
             return true;
         }
-        match self.repeat {
-            RepeatMode::One => unreachable!(),
-            RepeatMode::All => {
-                if self.tracks.is_empty() {
-                    return false;
-                }
-                self.selected = (self.selected + 1) % self.tracks.len();
-                true
+        if self.repeat == RepeatMode::All {
+            if self.tracks.is_empty() {
+                return false;
             }
-            RepeatMode::Off => {
-                if self.selected + 1 < self.tracks.len() {
-                    self.selected += 1;
-                    true
-                } else {
-                    false
-                }
+            self.selected = (self.selected + 1) % self.tracks.len();
+            true
+        } else {
+            // RepeatMode::Off
+            if self.selected + 1 < self.tracks.len() {
+                self.selected += 1;
+                true
+            } else {
+                false
             }
         }
     }

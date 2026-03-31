@@ -145,7 +145,7 @@ fn event_loop<B: ratatui::backend::Backend>(
             marquee_offset += 1;
         }
 
-        // 再生終了を検知して次のトラックへ自動再生
+        // rodio::Sink::empty() == true → 再生バッファが空 → トラック再生完了
         if matches!(state.player_state(), PlayerState::Playing) && player.is_empty() {
             state.clear_messages();
             if state.advance() {
@@ -180,7 +180,7 @@ fn play_current(state: &mut AppState, player: &Player) {
 fn save_playlist(state: &mut AppState) {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
+        .expect("system clock is before UNIX epoch")
         .as_secs();
     let name = format!("playlist_{ts}");
 
@@ -210,7 +210,7 @@ fn marquee_slice(s: &str, offset: usize, max_width: usize) -> String {
     let mut width = 0usize;
     let mut idx = offset % (total + 2); // 末尾に少し空白を挟んでループ
 
-    for _ in 0..max_width {
+    while width < max_width {
         if idx >= total {
             // 末尾の空白パディング部分
             result.push(' ');
@@ -227,9 +227,6 @@ fn marquee_slice(s: &str, offset: usize, max_width: usize) -> String {
             result.push(ch);
             width += ch_width;
             idx = (idx + 1) % (total + 2);
-        }
-        if width >= max_width {
-            break;
         }
     }
 
