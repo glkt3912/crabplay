@@ -103,10 +103,12 @@ ui::tui::run()
         └── event::poll(200ms)    キーイベント待機
               ├── clear_messages()  ← 全キーイベントの先頭で実行
               ├── match key.code
-              │     ├── Enter/n/p → play_current()          再生ヘルパー
+              │     ├── Enter/n/p → play_current()             再生ヘルパー
               │     │               └── load_and_play() 成功 → set_playing()
-              │     │               └── load_and_play() 失敗 → last_error にセット
-              │     ├── Space  → Player::toggle_pause() + set_paused/set_playing()
+              │     │               └── load_and_play() 失敗 → last_error にセット + set_stopped()
+              │     ├── Space  → Player::toggle_pause()
+              │     │           ├── paused  → set_paused()
+              │     │           └── resumed → set_resumed()  ※playing_index は変えない
               │     ├── ↑/↓   → AppState::next/prev()
               │     ├── a      → enqueue_selected() → info_msg にキュー件数表示
               │     ├── c      → clear_queue() → info_msg に "Queue cleared"
@@ -115,7 +117,8 @@ ui::tui::run()
               │     └── q      → Player::stop() → break
               ├── 選択変更検知 → marquee_offset / tick リセット
               ├── 5フレームごと → marquee_offset += 1
-              └── PlayerState::Playing && player.is_empty()
+              └── rodio::Sink::empty() == true（= 再生バッファ空 = トラック完了）
+                    ├── clear_messages()
                     ├── advance() == true → play_current() + marquee リセット
                     └── advance() == false → set_stopped()
 ```
@@ -132,8 +135,10 @@ ui::tui::run()
 marquee_slice(s: &str, offset: usize, max_width: usize) -> String
   ├── chars: Vec<char>  // 文字単位で分割
   ├── idx = offset % (total + 2)  // 末尾に2文字分の空白を挟んでループ
-  └── unicode_width::UnicodeWidthStr::width() で全角文字の表示幅を考慮しながら
-      max_width に収まるまで文字を追加
+  └── while width < max_width:
+        unicode_width::UnicodeWidthStr::width() で全角文字の表示幅を測りながら
+        width + ch_width > max_width なら break、そうでなければ追加
+        ※ ループ条件を幅ベースにすることで全角文字の境界を正確に処理する
 ```
 
 ## AppState の設計
@@ -142,32 +147,39 @@ marquee_slice(s: &str, offset: usize, max_width: usize) -> String
 pub struct AppState {
     pub tracks: Vec<TrackInfo>,
     pub selected: usize,
-    player_state: PlayerState,          // 非公開、遷移メソッド経由で変更
-    pub last_error: Option<String>,     // 直近の再生エラー
-    pub info_msg: Option<String>,       // 操作成功などの情報メッセージ
-    pub queue: VecDeque<usize>,         // 再生キュー（tracks のインデックス列）
-    pub repeat: RepeatMode,             // Off / All / One
+    player_state: PlayerState,   // 非公開、遷移メソッド経由で変更
+    pub last_error: Option<String>,
+    pub info_msg: Option<String>,
+    queue: VecDeque<usize>,      // 非公開、アクセサ経由で操作
+    pub repeat: RepeatMode,
 }
 ```
 
-`player_state` は直接書き換え不可。以下のメソッドで遷移する:
+`player_state` / `queue` は直接書き換え不可。以下のメソッドで操作する:
 
-- `set_playing()` / `set_paused()` / `set_stopped()`
-- `player_state()` で読み取り専用アクセス
+| メソッド | 役割 |
+|---------|------|
+| `set_playing()` | 新規再生開始。`selected` を `playing_index` に設定 |
+| `set_resumed()` | ポーズ解除。`playing_index` は変えず状態だけ `Playing` に戻す |
+| `set_paused()` / `set_stopped()` | 状態遷移 |
+| `player_state()` | 読み取り専用アクセス |
+| `enqueue_selected()` / `clear_queue()` | キュー操作 |
+| `queue_len()` / `queue_is_empty()` / `queue_paths()` | キュー参照（読み取り専用） |
 
-これにより状態遷移のロジックが TUI 層に漏れることを防ぐ。
+`set_playing()` と `set_resumed()` を分けることで、ポーズ中にカーソルを別トラックへ移動してもポーズ解除時に ▶ マーカーがずれない。
 
 ### キューと RepeatMode
 
 ```
 advance() の優先順位:
-  1. queue に項目あり → pop_front() した index を selected にセット
-  2. RepeatMode::One  → selected をそのまま（同じトラックをリピート）
+  1. RepeatMode::One  → キューを消費せず selected をそのまま（同じトラックをリピート）
+  2. queue に項目あり → pop_front() した index を selected にセット
   3. RepeatMode::All  → (selected + 1) % tracks.len()
   4. RepeatMode::Off  → selected + 1（末尾なら false を返して停止）
 ```
 
-`enqueue_selected()` / `clear_queue()` / `cycle_repeat()` / `clear_messages()` で各操作を行う。
+RepeatMode::One を最優先にすることで、1曲リピート中にキューへ追加した曲が割り込まない。
+メッセージのクリアは `advance()` ではなく呼び出し側（TUI の auto-advance ブロック）の責務とする。
 
 ### Playlist モジュール
 
@@ -179,9 +191,9 @@ pub struct Playlist {
 }
 ```
 
-- `save(&dir)` — `dir/<name>.json` として保存
+- `save(&dir)` — ファイル名を ASCII 英数字・`-`・`_` のみにサニタイズして `dir/<name>.json` に保存。サニタイズ後が空文字になる場合はエラーを返す
 - `load(&path)` — JSON ファイルから復元
-- `default_dir()` — `~/.config/crabplay/playlists/` を返す
+- `default_dir()` — `XDG_CONFIG_HOME` → `HOME/.config` → `.` の優先順で解決し、`crabplay/playlists/` を付加して返す
 
 ## OutputFormatter トレイト
 
