@@ -227,6 +227,35 @@ fn save_playlist(state: &mut AppState) {
 
 const BADGE_WIDTH: usize = 6;
 
+/// 文字列を `width` 表示列に合わせてパディング（右揃えスペース）または切り詰めする。
+///
+/// Rust の `format!("{:<N}", s)` は char 単位でパディングするため CJK 全角文字（1 char = 2 列）
+/// で実際の表示幅がずれる。この関数は `unicode-width` で表示幅を計算して正確に補正する。
+fn pad_display(s: &str, width: usize) -> String {
+    let disp = UnicodeWidthStr::width(s);
+    if disp >= width {
+        // 切り詰め: width 表示列に収まる文字だけ取る
+        let mut out = String::new();
+        let mut w = 0usize;
+        for c in s.chars() {
+            let mut buf = [0u8; 4];
+            let cw = UnicodeWidthStr::width(c.encode_utf8(&mut buf));
+            if w + cw > width {
+                break;
+            }
+            out.push(c);
+            w += cw;
+        }
+        // 全角文字が境界に収まらなかった場合の残りをスペースで埋める
+        while UnicodeWidthStr::width(out.as_str()) < width {
+            out.push(' ');
+        }
+        out
+    } else {
+        format!("{}{}", s, " ".repeat(width - disp))
+    }
+}
+
 /// キューの位置番号リストをバッジ文字列（BADGE_WIDTH 文字固定）に変換する。
 fn format_queue_badge(positions: &[usize]) -> String {
     let s = match positions {
@@ -242,39 +271,61 @@ fn format_queue_badge(positions: &[usize]) -> String {
 }
 
 /// 文字列を表示幅ベースでスクロールし、max_width 幅に収めて返す。
+///
+/// `offset` は表示列単位（1 増加 = 1 列スクロール）。
+/// 旧実装は `offset % (chars.len() + 2)` で文字数ベースのループを使っていたため、
+/// CJK 全角文字（1 char = 2 列）を含む場合にスクロール速度が 2 倍になっていた。
+/// 本実装は表示幅の合計 + 2 列の空白ギャップでループを計算する。
 fn marquee_slice(s: &str, offset: usize, max_width: usize) -> String {
-    // 文字の配列（char 単位）
     let chars: Vec<char> = s.chars().collect();
-    let total = chars.len();
-    if total == 0 {
-        return String::new();
+    if chars.is_empty() {
+        return " ".repeat(max_width);
     }
 
-    let mut result = String::new();
-    let mut width = 0usize;
-    let mut idx = offset % (total + 2); // 末尾に少し空白を挟んでループ
+    // 各文字の (累積開始列, char, 表示幅) テーブルを構築
+    let mut col_table: Vec<(usize, char, usize)> = Vec::with_capacity(chars.len());
+    let mut acc = 0usize;
+    for &ch in &chars {
+        let mut buf = [0u8; 4];
+        let w = UnicodeWidthStr::width(ch.encode_utf8(&mut buf));
+        col_table.push((acc, ch, w));
+        acc += w;
+    }
+    let total_disp = acc; // 文字列全体の表示幅
+    let loop_disp = total_disp + 2; // 末尾 2 列の空白ギャップを含むループ幅
 
-    while width < max_width {
-        if idx >= total {
-            // 末尾の空白パディング部分
+    // offset は表示列オフセット（1 増加 = 1 列スクロール）
+    let start_col = offset % loop_disp;
+
+    let mut result = String::new();
+    let mut out_width = 0usize;
+    let mut col = start_col;
+
+    while out_width < max_width {
+        let pos = col % loop_disp;
+        if pos >= total_disp {
+            // ギャップ領域（空白）
             result.push(' ');
-            width += 1;
-            idx = (idx + 1) % (total + 2);
+            out_width += 1;
+            col += 1;
         } else {
-            let ch = chars[idx];
-            let mut buf = [0u8; 4];
-            let ch_str: &str = ch.encode_utf8(&mut buf);
-            let ch_width = UnicodeWidthStr::width(ch_str);
-            if width + ch_width > max_width {
+            // pos 列に対応する文字を線形探索（タイトル長は通常 100 char 未満）
+            let (ci, w) = col_table
+                .iter()
+                .enumerate()
+                .find(|(_, (c_start, _, cw))| c_start + cw > pos)
+                .map(|(i, (_, _, cw))| (i, *cw))
+                .unwrap_or((0, 1));
+            if out_width + w > max_width {
                 break;
             }
-            result.push(ch);
-            width += ch_width;
-            idx = (idx + 1) % (total + 2);
+            result.push(col_table[ci].1);
+            out_width += w;
+            col += w;
         }
     }
 
-    // 全角文字が境界で収まらなかった場合など、max_width に満たない分を空白で埋める
+    // 全角文字が境界に収まらなかった場合などを空白で補完
     while UnicodeWidthStr::width(result.as_str()) < max_width {
         result.push(' ');
     }
@@ -328,18 +379,19 @@ fn draw(
                 let title_disp = if UnicodeWidthStr::width(t.title.as_str()) > TITLE_WIDTH {
                     marquee_slice(&t.title, marquee_offset, TITLE_WIDTH)
                 } else {
-                    format!("{:<width$}", t.title, width = TITLE_WIDTH)
+                    pad_display(&t.title, TITLE_WIDTH)
                 };
                 let artist_disp = if UnicodeWidthStr::width(artist) > ARTIST_WIDTH {
                     marquee_slice(artist, marquee_offset, ARTIST_WIDTH)
                 } else {
-                    format!("{:<width$}", artist, width = ARTIST_WIDTH)
+                    pad_display(artist, ARTIST_WIDTH)
                 };
                 (title_disp, artist_disp)
             } else {
+                // pad_display で表示幅ベースのパディング（CJK 全角文字対応）
                 (
-                    format!("{:<width$}", t.title, width = TITLE_WIDTH),
-                    format!("{:<width$}", artist, width = ARTIST_WIDTH),
+                    pad_display(&t.title, TITLE_WIDTH),
+                    pad_display(artist, ARTIST_WIDTH),
                 )
             };
 
