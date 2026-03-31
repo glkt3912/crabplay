@@ -33,16 +33,15 @@ impl Player {
         Ok(())
     }
 
-    pub fn toggle_pause(&self) {
+    /// ポーズ/再開を切り替え、切り替え後に「ポーズ中か」を返す。
+    pub fn toggle_pause(&self) -> bool {
         if self.sink.is_paused() {
             self.sink.play();
+            false
         } else {
             self.sink.pause();
+            true
         }
-    }
-
-    pub fn is_paused(&self) -> bool {
-        self.sink.is_paused()
     }
 
     pub fn is_empty(&self) -> bool {
