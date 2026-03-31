@@ -21,6 +21,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::app::{AppState, PlayerState};
 use crate::audio::player::Player;
+use crate::playlist::Playlist;
 
 /// パニック時も含めてターミナルを必ず復元するガード型。
 struct TerminalGuard;
@@ -72,6 +73,7 @@ fn event_loop<B: ratatui::backend::Backend>(
             if key.kind != KeyEventKind::Press {
                 continue;
             }
+            state.clear_messages();
             match key.code {
                 KeyCode::Char('q') => {
                     player.stop();
@@ -89,7 +91,6 @@ fn event_loop<B: ratatui::backend::Backend>(
                     play_current(state, player);
                 }
                 KeyCode::Char(' ') => {
-                    state.last_error = None;
                     player.toggle_pause();
                     if player.is_paused() {
                         state.set_paused();
@@ -106,6 +107,25 @@ fn event_loop<B: ratatui::backend::Backend>(
                     state.prev();
                     list_state.select(Some(state.selected));
                     play_current(state, player);
+                }
+                // キューに選択中のトラックを追加
+                KeyCode::Char('a') => {
+                    state.enqueue_selected();
+                    state.info_msg = Some(format!("Queued: {} track(s)", state.queue.len()));
+                }
+                // キューをクリア
+                KeyCode::Char('c') => {
+                    state.clear_queue();
+                    state.info_msg = Some("Queue cleared".to_string());
+                }
+                // リピートモードをサイクル
+                KeyCode::Char('r') => {
+                    state.cycle_repeat();
+                    state.info_msg = Some(format!("Repeat: {}", state.repeat.label()));
+                }
+                // キュー（空の場合は全トラック）をプレイリストとして保存
+                KeyCode::Char('s') => {
+                    save_playlist(state);
                 }
                 _ => {}
             }
@@ -125,10 +145,9 @@ fn event_loop<B: ratatui::backend::Backend>(
             marquee_offset += 1;
         }
 
-        // 再生終了を検知して次のトラックを自動再生
+        // 再生終了を検知して次のトラックへ自動再生
         if matches!(state.player_state(), PlayerState::Playing) && player.is_empty() {
-            if state.selected + 1 < state.tracks.len() {
-                state.next();
+            if state.advance() {
                 list_state.select(Some(state.selected));
                 marquee_offset = 0;
                 marquee_tick = 0;
@@ -151,6 +170,31 @@ fn play_current(state: &mut AppState, player: &Player) {
             Ok(_) => state.set_playing(),
             Err(e) => state.last_error = Some(e.to_string()),
         }
+    }
+}
+
+fn save_playlist(state: &mut AppState) {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let name = format!("playlist_{ts}");
+
+    let paths = if state.queue.is_empty() {
+        state.tracks.iter().map(|t| t.path.clone()).collect()
+    } else {
+        state
+            .queue
+            .iter()
+            .filter_map(|&i| state.tracks.get(i))
+            .map(|t| t.path.clone())
+            .collect()
+    };
+
+    let playlist = Playlist::new(&name, paths);
+    match playlist.save(&Playlist::default_dir()) {
+        Ok(dest) => state.info_msg = Some(format!("Saved: {}", dest.display())),
+        Err(e) => state.last_error = Some(e.to_string()),
     }
 }
 
@@ -271,8 +315,15 @@ fn draw(
         })
         .collect();
 
+    // キュー件数をタイトルに表示
+    let list_title = if state.queue.is_empty() {
+        " crabplay ".to_string()
+    } else {
+        format!(" crabplay  [queue: {}] ", state.queue.len())
+    };
+
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(" crabplay "))
+        .block(Block::default().borders(Borders::ALL).title(list_title))
         .highlight_style(
             Style::default()
                 .bg(Color::DarkGray)
@@ -292,7 +343,9 @@ fn draw(
     }
 
     // 再生情報ペイン
-    let (now_playing, np_color) = if let Some(ref err) = state.last_error {
+    let (now_playing, np_color) = if let Some(ref msg) = state.info_msg {
+        (format!(" ✓  {msg}"), Color::Green)
+    } else if let Some(ref err) = state.last_error {
         (format!(" ⚠  {err}"), Color::Red)
     } else if let Some(track) = state.current() {
         let status = match state.player_state() {
@@ -328,12 +381,14 @@ fn draw(
 
     f.render_widget(now_playing_widget, chunks[1]);
 
-    // キーバインドペイン（固定）
-    let keybinds = Paragraph::new(
-        " [↑↓] select   [Enter] play   [Space] pause   [n] next   [p] prev   [q] quit",
-    )
-    .block(Block::default().borders(Borders::ALL))
-    .style(Style::default().fg(Color::DarkGray));
+    // キーバインドペイン（リピートモード表示付き）
+    let keybinds_text = format!(
+        " [↑↓] select  [Enter] play  [Space] pause  [n/p] next/prev  [a] queue  [c] clear  [r] repeat:{}  [s] save  [q] quit",
+        state.repeat.label()
+    );
+    let keybinds = Paragraph::new(keybinds_text)
+        .block(Block::default().borders(Borders::ALL))
+        .style(Style::default().fg(Color::DarkGray));
 
     f.render_widget(keybinds, chunks[2]);
 }

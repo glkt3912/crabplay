@@ -5,4 +5,5 @@ pub mod error;
 pub mod library;
 pub mod models;
 pub mod output;
+pub mod playlist;
 pub mod ui;
