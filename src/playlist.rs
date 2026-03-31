@@ -31,6 +31,7 @@ impl Playlist {
                 }
             })
             .collect();
+        anyhow::ensure!(!safe.is_empty(), "playlist name is empty after sanitization");
         let dest = dir.join(format!("{safe}.json"));
         std::fs::write(&dest, serde_json::to_string_pretty(self)?)?;
         Ok(dest)
@@ -42,13 +43,14 @@ impl Playlist {
         Ok(serde_json::from_str(&data)?)
     }
 
-    /// デフォルト保存先: `~/.config/crabplay/playlists/`
+    /// デフォルト保存先。XDG_CONFIG_HOME → HOME/.config → カレントディレクトリの順でフォールバック。
     pub fn default_dir() -> PathBuf {
-        std::env::var("HOME")
+        let base = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(".config")
-            .join("crabplay")
-            .join("playlists")
+            .or_else(|| {
+                std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config"))
+            })
+            .unwrap_or_else(|| PathBuf::from("."));
+        base.join("crabplay").join("playlists")
     }
 }

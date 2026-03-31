@@ -95,7 +95,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                     if player.is_paused() {
                         state.set_paused();
                     } else {
-                        state.set_playing();
+                        state.set_resumed();
                     }
                 }
                 KeyCode::Char('n') => {
@@ -111,7 +111,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                 // キューに選択中のトラックを追加
                 KeyCode::Char('a') => {
                     state.enqueue_selected();
-                    state.info_msg = Some(format!("Queued: {} track(s)", state.queue.len()));
+                    state.info_msg = Some(format!("Queued: {} track(s)", state.queue_len()));
                 }
                 // キューをクリア
                 KeyCode::Char('c') => {
@@ -147,6 +147,7 @@ fn event_loop<B: ratatui::backend::Backend>(
 
         // 再生終了を検知して次のトラックへ自動再生
         if matches!(state.player_state(), PlayerState::Playing) && player.is_empty() {
+            state.clear_messages();
             if state.advance() {
                 list_state.select(Some(state.selected));
                 marquee_offset = 0;
@@ -168,7 +169,10 @@ fn play_current(state: &mut AppState, player: &Player) {
         let path = track.path.clone();
         match player.load_and_play(&path) {
             Ok(_) => state.set_playing(),
-            Err(e) => state.last_error = Some(e.to_string()),
+            Err(e) => {
+                state.last_error = Some(e.to_string());
+                state.set_stopped();
+            }
         }
     }
 }
@@ -180,15 +184,10 @@ fn save_playlist(state: &mut AppState) {
         .as_secs();
     let name = format!("playlist_{ts}");
 
-    let paths = if state.queue.is_empty() {
+    let paths = if state.queue_is_empty() {
         state.tracks.iter().map(|t| t.path.clone()).collect()
     } else {
-        state
-            .queue
-            .iter()
-            .filter_map(|&i| state.tracks.get(i))
-            .map(|t| t.path.clone())
-            .collect()
+        state.queue_paths()
     };
 
     let playlist = Playlist::new(&name, paths);
@@ -316,10 +315,10 @@ fn draw(
         .collect();
 
     // キュー件数をタイトルに表示
-    let list_title = if state.queue.is_empty() {
+    let list_title = if state.queue_is_empty() {
         " crabplay ".to_string()
     } else {
-        format!(" crabplay  [queue: {}] ", state.queue.len())
+        format!(" crabplay  [queue: {}] ", state.queue_len())
     };
 
     let list = List::new(items)

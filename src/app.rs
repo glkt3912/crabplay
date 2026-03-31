@@ -27,6 +27,7 @@ impl RepeatMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerState {
     Stopped,
     Playing,
@@ -42,8 +43,8 @@ pub struct AppState {
     pub last_error: Option<String>,
     /// 操作成功などの情報メッセージ。
     pub info_msg: Option<String>,
-    /// 再生キュー（tracks のインデックス列）。
-    pub queue: VecDeque<usize>,
+    /// 再生キュー（tracks のインデックス列）。外部からは queue_len() / enqueue_selected() / clear_queue() を使う。
+    queue: VecDeque<usize>,
     /// リピートモード。
     pub repeat: RepeatMode,
 }
@@ -87,8 +88,14 @@ impl AppState {
         &self.player_state
     }
 
+    /// 新規再生開始。selected を playing_index に設定する。
     pub fn set_playing(&mut self) {
         self.playing_index = Some(self.selected);
+        self.player_state = PlayerState::Playing;
+    }
+
+    /// ポーズ解除。playing_index は変えずに状態だけ Playing に戻す。
+    pub fn set_resumed(&mut self) {
         self.player_state = PlayerState::Playing;
     }
 
@@ -111,6 +118,26 @@ impl AppState {
         self.queue.clear();
     }
 
+    /// 現在のキュー件数を返す。
+    pub fn queue_len(&self) -> usize {
+        self.queue.len()
+    }
+
+    /// キューが空かどうかを返す。
+    pub fn queue_is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    /// キューに積まれているトラックのパス一覧を返す。
+    /// キューが空の場合は空の Vec を返す（全トラックへのフォールバックは呼び出し側で行う）。
+    pub fn queue_paths(&self) -> Vec<std::path::PathBuf> {
+        self.queue
+            .iter()
+            .filter_map(|&i| self.tracks.get(i))
+            .map(|t| t.path.clone())
+            .collect()
+    }
+
     /// リピートモードをサイクルする。
     pub fn cycle_repeat(&mut self) {
         self.repeat = self.repeat.cycle();
@@ -124,16 +151,24 @@ impl AppState {
 
     /// 現在のトラック終了後に次へ進む。
     ///
-    /// キューに項目があればそれを優先し、なければ RepeatMode に従う。
+    /// 優先順位:
+    /// 1. `RepeatMode::One` — selected を変えずにそのままリピート（キューは消費しない）
+    /// 2. キューに項目あり — pop_front() した index を selected にセット
+    /// 3. `RepeatMode::All` — (selected + 1) % len でループ
+    /// 4. `RepeatMode::Off` — 線形に次へ（末尾なら false を返す）
+    ///
     /// 次のトラックが存在する場合は `selected` を更新して `true` を返す。
+    /// メッセージのクリアは呼び出し側の責務とする。
     pub fn advance(&mut self) -> bool {
-        self.clear_messages();
+        if self.repeat == RepeatMode::One {
+            return true;
+        }
         if let Some(idx) = self.queue.pop_front() {
             self.selected = idx;
             return true;
         }
         match self.repeat {
-            RepeatMode::One => true,
+            RepeatMode::One => unreachable!(),
             RepeatMode::All => {
                 if self.tracks.is_empty() {
                     return false;
