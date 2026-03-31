@@ -138,6 +138,17 @@ impl AppState {
             .collect()
     }
 
+    /// 指定したトラックインデックスが queue の何番目（1始まり）に存在するか全て返す。
+    /// キューにない場合は空 Vec。同一トラックが複数回積まれている場合は複数の位置を含む。
+    pub fn queue_positions_for(&self, track_index: usize) -> Vec<usize> {
+        self.queue
+            .iter()
+            .enumerate()
+            .filter(|&(_, &idx)| idx == track_index)
+            .map(|(pos, _)| pos + 1)
+            .collect()
+    }
+
     /// リピートモードをサイクルする。
     pub fn cycle_repeat(&mut self) {
         self.repeat = self.repeat.cycle();
@@ -182,5 +193,64 @@ impl AppState {
                 false
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::TrackInfo;
+    use std::path::PathBuf;
+
+    fn make_state(n: usize) -> AppState {
+        let tracks = (0..n)
+            .map(|i| TrackInfo {
+                path: PathBuf::from(format!("/track{i}.mp3")),
+                title: format!("Track {i}"),
+                artist: "Artist".to_string(),
+                album: "Album".to_string(),
+                duration_secs: 180,
+            })
+            .collect();
+        AppState::new(tracks)
+    }
+
+    #[test]
+    fn queue_positions_empty_queue() {
+        let state = make_state(3);
+        assert_eq!(state.queue_positions_for(0), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn queue_positions_single() {
+        let mut state = make_state(3);
+        state.selected = 0;
+        state.enqueue_selected();
+        assert_eq!(state.queue_positions_for(0), vec![1]);
+        assert_eq!(state.queue_positions_for(1), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn queue_positions_duplicate() {
+        let mut state = make_state(3);
+        state.selected = 0;
+        state.enqueue_selected();
+        state.enqueue_selected();
+        state.enqueue_selected();
+        assert_eq!(state.queue_positions_for(0), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn queue_positions_mixed() {
+        let mut state = make_state(3);
+        state.selected = 0;
+        state.enqueue_selected(); // queue: [0]
+        state.selected = 1;
+        state.enqueue_selected(); // queue: [0, 1]
+        state.selected = 0;
+        state.enqueue_selected(); // queue: [0, 1, 0]
+        assert_eq!(state.queue_positions_for(0), vec![1, 3]);
+        assert_eq!(state.queue_positions_for(1), vec![2]);
+        assert_eq!(state.queue_positions_for(2), Vec::<usize>::new());
     }
 }

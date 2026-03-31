@@ -31,7 +31,10 @@ impl Playlist {
                 }
             })
             .collect();
-        anyhow::ensure!(!safe.is_empty(), "playlist name is empty after sanitization");
+        anyhow::ensure!(
+            !safe.is_empty(),
+            "playlist name is empty after sanitization"
+        );
         let dest = dir.join(format!("{safe}.json"));
         std::fs::write(&dest, serde_json::to_string_pretty(self)?)?;
         Ok(dest)
@@ -47,9 +50,7 @@ impl Playlist {
     pub fn default_dir() -> PathBuf {
         let base = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
-            .or_else(|| {
-                std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config"))
-            })
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
             .unwrap_or_else(|| PathBuf::from("."));
         base.join("crabplay").join("playlists")
     }

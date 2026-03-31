@@ -197,6 +197,19 @@ fn save_playlist(state: &mut AppState) {
     }
 }
 
+const BADGE_WIDTH: usize = 6;
+
+/// キューの位置番号リストをバッジ文字列（BADGE_WIDTH 文字固定）に変換する。
+fn format_queue_badge(positions: &[usize]) -> String {
+    let s = match positions {
+        [] => return " ".repeat(BADGE_WIDTH),
+        [p] => format!("[{}]", p),
+        [p1, p2] if *p1 < 10 && *p2 < 10 => format!("[{},{}]", p1, p2),
+        [p1, rest @ ..] => format!("[{}+{}]", p1, rest.len()),
+    };
+    format!("{:<width$}", s, width = BADGE_WIDTH)
+}
+
 /// 文字列を表示幅ベースでスクロールし、max_width 幅に収めて返す。
 fn marquee_slice(s: &str, offset: usize, max_width: usize) -> String {
     // 文字の配列（char 単位）
@@ -255,7 +268,7 @@ fn draw(
         ])
         .split(f.area());
 
-    // タイトル列・アーティスト列の表示幅
+    // タイトル列・アーティスト列・キューバッジの表示幅
     const TITLE_WIDTH: usize = 30;
     const ARTIST_WIDTH: usize = 20;
 
@@ -305,6 +318,10 @@ fn draw(
                 Span::styled(
                     format!(" {:>2}:{:02}", mins, secs),
                     Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(
+                    format!(" {}", format_queue_badge(&state.queue_positions_for(i))),
+                    Style::default().fg(Color::Magenta),
                 ),
             ]);
             ListItem::new(line)
@@ -387,4 +404,46 @@ fn draw(
         .style(Style::default().fg(Color::DarkGray));
 
     f.render_widget(keybinds, chunks[2]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn badge_empty() {
+        assert_eq!(format_queue_badge(&[]), "      ");
+        assert_eq!(format_queue_badge(&[]).len(), BADGE_WIDTH);
+    }
+
+    #[test]
+    fn badge_single() {
+        assert_eq!(format_queue_badge(&[1]), "[1]   ");
+        assert_eq!(format_queue_badge(&[1]).len(), BADGE_WIDTH);
+    }
+
+    #[test]
+    fn badge_two_single_digits() {
+        assert_eq!(format_queue_badge(&[1, 3]), "[1,3] ");
+        assert_eq!(format_queue_badge(&[1, 3]).len(), BADGE_WIDTH);
+    }
+
+    #[test]
+    fn badge_many() {
+        let result = format_queue_badge(&[2, 4, 6]);
+        assert_eq!(result.len(), BADGE_WIDTH);
+        assert!(result.starts_with("[2+2]"));
+    }
+
+    #[test]
+    fn badge_always_badge_width() {
+        for positions in [vec![], vec![1], vec![1, 2], vec![1, 2, 3], vec![10, 20]] {
+            assert_eq!(
+                format_queue_badge(&positions).len(),
+                BADGE_WIDTH,
+                "positions = {:?}",
+                positions
+            );
+        }
+    }
 }
