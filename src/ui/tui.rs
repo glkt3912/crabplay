@@ -65,8 +65,18 @@ fn event_loop<B: ratatui::backend::Backend>(
     let mut marquee_offset: usize = 0;
     let mut last_selected = state.selected;
 
+    // キュー変更時のみ再計算するバッジキャッシュ
+    let mut queue_badge_map = state.queue_badge_map();
+    let mut queue_dirty = false;
+
     loop {
-        let queue_badge_map = state.queue_badge_map();
+        state.tick_error_timeout();
+
+        if queue_dirty {
+            queue_badge_map = state.queue_badge_map();
+            queue_dirty = false;
+        }
+
         terminal.draw(|f| {
             draw(
                 f,
@@ -102,8 +112,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                     play_current(state, player);
                 }
                 KeyCode::Char(' ') => {
-                    player.toggle_pause();
-                    if player.is_paused() {
+                    if player.toggle_pause() {
                         state.set_paused();
                     } else {
                         state.set_resumed();
@@ -122,11 +131,13 @@ fn event_loop<B: ratatui::backend::Backend>(
                 // キューに選択中のトラックを追加
                 KeyCode::Char('a') => {
                     state.enqueue_selected();
+                    queue_dirty = true;
                     state.info_msg = Some(format!("Queued: {} track(s)", state.queue_len()));
                 }
                 // キューをクリア
                 KeyCode::Char('c') => {
                     state.clear_queue();
+                    queue_dirty = true;
                     state.info_msg = Some("Queue cleared".to_string());
                 }
                 // リピートモードをサイクル
@@ -157,9 +168,14 @@ fn event_loop<B: ratatui::backend::Backend>(
         }
 
         // rodio::Sink::empty() == true → 再生バッファが空 → トラック再生完了
-        if matches!(state.player_state(), PlayerState::Playing) && player.is_empty() {
+        // is_playback_settled() で load_and_play 直後の一瞬 empty() が true になる誤検知を防ぐ
+        if matches!(state.player_state(), PlayerState::Playing)
+            && state.is_playback_settled()
+            && player.is_empty()
+        {
             state.clear_messages();
             if state.advance() {
+                queue_dirty = true;
                 list_state.select(Some(state.selected));
                 marquee_offset = 0;
                 marquee_tick = 0;
@@ -176,12 +192,13 @@ fn event_loop<B: ratatui::backend::Backend>(
 
 fn play_current(state: &mut AppState, player: &Player) {
     state.last_error = None;
+    state.info_msg = None;
     if let Some(track) = state.tracks.get(state.selected) {
         let path = track.path.clone();
         match player.load_and_play(&path) {
             Ok(_) => state.set_playing(),
             Err(e) => {
-                state.last_error = Some(e.to_string());
+                state.set_error(e.to_string());
                 state.set_stopped();
             }
         }
@@ -191,9 +208,9 @@ fn play_current(state: &mut AppState, player: &Player) {
 fn save_playlist(state: &mut AppState) {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock is before UNIX epoch")
-        .as_secs();
-    let name = format!("playlist_{ts}");
+        .expect("system clock is before UNIX epoch");
+    // サブ秒精度（ミリ秒）を付加して同一秒内の上書きを防止
+    let name = format!("playlist_{}_{:03}", ts.as_secs(), ts.subsec_millis());
 
     let paths = if state.queue_is_empty() {
         state.tracks.iter().map(|t| t.path.clone()).collect()
@@ -204,7 +221,7 @@ fn save_playlist(state: &mut AppState) {
     let playlist = Playlist::new(&name, paths);
     match playlist.save(&Playlist::default_dir()) {
         Ok(dest) => state.info_msg = Some(format!("Saved: {}", dest.display())),
-        Err(e) => state.last_error = Some(e.to_string()),
+        Err(e) => state.set_error(e.to_string()),
     }
 }
 
@@ -416,7 +433,7 @@ fn draw(
 
     // キーバインドペイン（リピートモード表示付き）
     let keybinds_text = format!(
-        " [↑↓] select  [Enter] play  [Space] pause  [n/p] next/prev  [a] queue  [c] clear  [r] repeat:{}  [s] save  [q] quit",
+        " [↑↓] select  [Enter] play  [Space] pause  [n/p] move+play  [a] queue  [c] clear  [r] repeat:{}  [s] save  [q] quit",
         state.repeat.label()
     );
     let keybinds = Paragraph::new(keybinds_text)
