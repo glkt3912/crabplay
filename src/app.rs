@@ -41,12 +41,16 @@ pub struct AppState {
     player_state: PlayerState,
     /// 直近の再生エラーメッセージ。
     pub last_error: Option<String>,
+    /// エラー表示開始時刻（5秒後に自動クリア）。
+    error_since: Option<std::time::Instant>,
     /// 操作成功などの情報メッセージ。
     pub info_msg: Option<String>,
     /// 再生キュー（tracks のインデックス列）。外部からは queue_len() / enqueue_selected() / clear_queue() を使う。
     queue: VecDeque<usize>,
     /// リピートモード。
     pub repeat: RepeatMode,
+    /// load_and_play 直後の is_empty() 誤検知を防ぐための再生開始時刻。
+    playback_started_at: Option<std::time::Instant>,
 }
 
 impl AppState {
@@ -57,9 +61,11 @@ impl AppState {
             playing_index: None,
             player_state: PlayerState::Stopped,
             last_error: None,
+            error_since: None,
             info_msg: None,
             queue: VecDeque::new(),
             repeat: RepeatMode::Off,
+            playback_started_at: None,
         }
     }
 
@@ -88,24 +94,36 @@ impl AppState {
         &self.player_state
     }
 
-    /// 新規再生開始。selected を playing_index に設定する。
+    /// 新規再生開始。selected を playing_index に設定し、is_empty() 誤検知防止のため開始時刻を記録する。
     pub fn set_playing(&mut self) {
         self.playing_index = Some(self.selected);
         self.player_state = PlayerState::Playing;
+        self.playback_started_at = Some(std::time::Instant::now());
     }
 
     /// ポーズ解除。playing_index は変えずに状態だけ Playing に戻す。
     pub fn set_resumed(&mut self) {
         self.player_state = PlayerState::Playing;
+        self.playback_started_at = Some(std::time::Instant::now());
     }
 
     pub fn set_paused(&mut self) {
         self.player_state = PlayerState::Paused;
+        self.playback_started_at = None;
     }
 
     pub fn set_stopped(&mut self) {
         self.playing_index = None;
         self.player_state = PlayerState::Stopped;
+        self.playback_started_at = None;
+    }
+
+    /// 再生開始（またはポーズ解除）から 500ms 以上経過したか。
+    /// load_and_play 直後の一瞬 is_empty() が true になる誤検知を防ぐ。
+    pub fn is_playback_settled(&self) -> bool {
+        self.playback_started_at
+            .map(|t| t.elapsed() >= std::time::Duration::from_millis(500))
+            .unwrap_or(true)
     }
 
     /// 選択中のトラックをキューの末尾に追加する。
@@ -165,16 +183,36 @@ impl AppState {
         self.repeat = self.repeat.cycle();
     }
 
+    /// エラーメッセージをセットし、5秒タイムアウト用の時刻を記録する。
+    pub fn set_error(&mut self, msg: String) {
+        self.last_error = Some(msg);
+        self.error_since = Some(std::time::Instant::now());
+    }
+
+    /// エラーが 5秒以上表示されていれば自動クリアする。イベントループの先頭で毎フレーム呼ぶ。
+    pub fn tick_error_timeout(&mut self) {
+        if self
+            .error_since
+            .map(|t| t.elapsed() >= std::time::Duration::from_secs(5))
+            .unwrap_or(false)
+        {
+            self.last_error = None;
+            self.error_since = None;
+        }
+    }
+
     /// エラー・情報メッセージを両方クリアする。
     pub fn clear_messages(&mut self) {
         self.last_error = None;
+        self.error_since = None;
         self.info_msg = None;
     }
 
     /// 現在のトラック終了後に次へ進む。
     ///
     /// 優先順位:
-    /// 1. `RepeatMode::One` — selected を変えずにそのままリピート（キューは消費しない）
+    /// 1. `RepeatMode::One` — playing_index のトラックをリピート（キューは消費しない）。
+    ///    カーソル（selected）が移動していても playing_index に戻す。
     /// 2. キューに項目あり — pop_front() した index を selected にセット
     /// 3. `RepeatMode::All` — (selected + 1) % len でループ
     /// 4. `RepeatMode::Off` — 線形に次へ（末尾なら false を返す）
@@ -183,6 +221,10 @@ impl AppState {
     /// メッセージのクリアは呼び出し側の責務とする。
     pub fn advance(&mut self) -> bool {
         if self.repeat == RepeatMode::One {
+            // ループ対象は「現在再生中のトラック」。カーソルがずれても元のトラックに戻す。
+            if let Some(idx) = self.playing_index {
+                self.selected = idx;
+            }
             return true;
         }
         if let Some(idx) = self.queue.pop_front() {
@@ -249,6 +291,25 @@ mod tests {
         state.enqueue_selected();
         state.enqueue_selected();
         assert_eq!(state.queue_positions_for(0), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn advance_repeat_one_ignores_queue_and_resets_cursor() {
+        let mut state = make_state(3);
+        state.selected = 0;
+        state.set_playing(); // playing_index = Some(0)
+        // カーソルを動かしキューに積む
+        state.selected = 1;
+        state.enqueue_selected(); // queue: [1]
+        state.selected = 2; // カーソルをさらに移動
+        state.repeat = RepeatMode::One;
+        // advance() はキューを無視し、selected を playing_index に戻す
+        assert!(state.advance());
+        assert_eq!(
+            state.selected, 0,
+            "RepeatMode::One は playing_index のトラックに戻す"
+        );
+        assert_eq!(state.queue_len(), 1, "キューは消費されない");
     }
 
     #[test]
