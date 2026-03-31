@@ -12,13 +12,14 @@ main.rs
   └── ui::tui                    (TUI レンダリング + イベントループ)
 
 lib.rs (モジュール宣言)
-  ├── pub mod app                ← AppState / PlayerState
+  ├── pub mod app                ← AppState / PlayerState / RepeatMode
   ├── pub mod audio              ← Player (rodio)
   ├── pub mod cli                ← Args (clap)
   ├── pub mod error              ← AppError (thiserror) ← 他モジュールが参照
   ├── pub mod library            ← scanner / metadata
   ├── pub mod models             ← TrackInfo (serde)
   ├── pub mod output             ← OutputFormatter トレイト
+  ├── pub mod playlist           ← Playlist (保存/読み込み)
   └── pub mod ui                 ← tui (ratatui)
 ```
 
@@ -100,24 +101,30 @@ ui::tui::run()
         ├── marquee_offset / marquee_tick  マーキースクロール状態（ローカル変数）
         ├── terminal.draw(|f| draw(f, state, player, list_state, marquee_offset))
         └── event::poll(200ms)    キーイベント待機
+              ├── clear_messages()  ← 全キーイベントの先頭で実行
               ├── match key.code
               │     ├── Enter/n/p → play_current()          再生ヘルパー
               │     │               └── load_and_play() 成功 → set_playing()
               │     │               └── load_and_play() 失敗 → last_error にセット
               │     ├── Space  → Player::toggle_pause() + set_paused/set_playing()
               │     ├── ↑/↓   → AppState::next/prev()
+              │     ├── a      → enqueue_selected() → info_msg にキュー件数表示
+              │     ├── c      → clear_queue() → info_msg に "Queue cleared"
+              │     ├── r      → cycle_repeat() → info_msg にモード表示
+              │     ├── s      → save_playlist() → 保存先パスを info_msg / エラーを last_error
               │     └── q      → Player::stop() → break
               ├── 選択変更検知 → marquee_offset / tick リセット
               ├── 5フレームごと → marquee_offset += 1
               └── PlayerState::Playing && player.is_empty()
-                    ├── 次トラックあり → next() + play_current() + marquee リセット
-                    └── 最後のトラック → set_stopped()
+                    ├── advance() == true → play_current() + marquee リセット
+                    └── advance() == false → set_stopped()
 ```
 
 描画は `draw()` 関数で 3 ペインに分割:
+
 - **トラックリスト** (上部 `Constraint::Min(3)`): `List` ウィジェット + `Scrollbar`。選択行ハイライト。長いタイトル・アーティスト名はマーキースクロール。
-- **Now Playing** (中段 `Constraint::Length(3)`): 再生状態・曲名・アーティスト・経過時間 / 合計時間。エラー発生時は赤色で表示。
-- **キーバインド** (下段 `Constraint::Length(3)`): 固定文字列。
+- **Now Playing** (中段 `Constraint::Length(3)`): 再生状態・曲名・アーティスト・経過時間 / 合計時間。`info_msg` があれば緑色、`last_error` があれば赤色で優先表示。
+- **キーバインド** (下段 `Constraint::Length(3)`): 現在の `repeat` モードをリアルタイム表示する動的文字列。
 
 ### マーキースクロール実装
 
@@ -136,15 +143,45 @@ pub struct AppState {
     pub tracks: Vec<TrackInfo>,
     pub selected: usize,
     player_state: PlayerState,          // 非公開、遷移メソッド経由で変更
-    pub last_error: Option<String>,     // 直近の再生エラー（次の操作でクリア）
+    pub last_error: Option<String>,     // 直近の再生エラー
+    pub info_msg: Option<String>,       // 操作成功などの情報メッセージ
+    pub queue: VecDeque<usize>,         // 再生キュー（tracks のインデックス列）
+    pub repeat: RepeatMode,             // Off / All / One
 }
 ```
 
 `player_state` は直接書き換え不可。以下のメソッドで遷移する:
+
 - `set_playing()` / `set_paused()` / `set_stopped()`
 - `player_state()` で読み取り専用アクセス
 
 これにより状態遷移のロジックが TUI 層に漏れることを防ぐ。
+
+### キューと RepeatMode
+
+```
+advance() の優先順位:
+  1. queue に項目あり → pop_front() した index を selected にセット
+  2. RepeatMode::One  → selected をそのまま（同じトラックをリピート）
+  3. RepeatMode::All  → (selected + 1) % tracks.len()
+  4. RepeatMode::Off  → selected + 1（末尾なら false を返して停止）
+```
+
+`enqueue_selected()` / `clear_queue()` / `cycle_repeat()` / `clear_messages()` で各操作を行う。
+
+### Playlist モジュール
+
+```rust
+// src/playlist.rs
+pub struct Playlist {
+    pub name: String,
+    pub paths: Vec<PathBuf>,
+}
+```
+
+- `save(&dir)` — `dir/<name>.json` として保存
+- `load(&path)` — JSON ファイルから復元
+- `default_dir()` — `~/.config/crabplay/playlists/` を返す
 
 ## OutputFormatter トレイト
 
