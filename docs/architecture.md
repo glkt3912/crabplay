@@ -125,7 +125,7 @@ ui::tui::run()
 
 描画は `draw()` 関数で 3 ペインに分割:
 
-- **トラックリスト** (上部 `Constraint::Min(3)`): `List` ウィジェット + `Scrollbar`。選択行ハイライト。長いタイトル・アーティスト名はマーキースクロール。
+- **トラックリスト** (上部 `Constraint::Min(3)`): `List` ウィジェット + `Scrollbar`。選択行ハイライト。長いタイトル・アーティスト名はマーキースクロール。各行末尾にキュー位置バッジ（後述）を表示。
 - **Now Playing** (中段 `Constraint::Length(3)`): 再生状態・曲名・アーティスト・経過時間 / 合計時間。`info_msg` があれば緑色、`last_error` があれば赤色で優先表示。
 - **キーバインド** (下段 `Constraint::Length(3)`): 現在の `repeat` モードをリアルタイム表示する動的文字列。
 
@@ -165,6 +165,7 @@ pub struct AppState {
 | `player_state()` | 読み取り専用アクセス |
 | `enqueue_selected()` / `clear_queue()` | キュー操作 |
 | `queue_len()` / `queue_is_empty()` / `queue_paths()` | キュー参照（読み取り専用） |
+| `queue_positions_for(track_index)` | 指定インデックスがキューの何番目にあるかを `Vec<usize>`（1始まり）で返す。重複登録時は複数の位置を含む |
 
 `set_playing()` と `set_resumed()` を分けることで、ポーズ中にカーソルを別トラックへ移動してもポーズ解除時に ▶ マーカーがずれない。
 
@@ -180,6 +181,29 @@ advance() の優先順位:
 
 RepeatMode::One を最優先にすることで、1曲リピート中にキューへ追加した曲が割り込まない。
 メッセージのクリアは `advance()` ではなく呼び出し側（TUI の auto-advance ブロック）の責務とする。
+
+### キュー位置バッジ
+
+トラックリストの各行末尾に `BADGE_WIDTH = 6` 文字固定のバッジを表示する（Color::Magenta）。
+
+```
+  Bohemian Rhapsody    Queen     5:54        ← キューなし（空白 6 文字）
+▶ Hotel California     Eagles    6:30  [1]   ← キュー 1 番目
+  Stairway to Heaven   Led Zep   8:02  [2]   ← キュー 2 番目
+  Hotel California     Eagles    6:30  [1,3] ← 1 番目と 3 番目に重複登録
+  Comfortably Numb     Pink F    6:21  [2+2] ← 2 番目 + 残り 2 件
+```
+
+`format_queue_badge(positions: &[usize]) -> String` の変換規則:
+
+| 状態 | 表示例 |
+|------|--------|
+| キューなし | `"      "` (空白 6 文字) |
+| 1 箇所 | `"[1]   "` |
+| 2 箇所かつ両方 1 桁 | `"[1,3] "` |
+| それ以外（3 箇所以上 or 2 桁以上） | `"[1+2] "` (先頭位置 + 残り件数) |
+
+幅を固定することで、ターミナル幅が狭い場合でも末尾から自然に切り詰められ、タイトル・アーティストなどの主要情報が保護される。
 
 ### Playlist モジュール
 
