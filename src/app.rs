@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use crate::models::TrackInfo;
 
@@ -138,15 +138,26 @@ impl AppState {
             .collect()
     }
 
-    /// 指定したトラックインデックスが queue の何番目（1始まり）に存在するか全て返す。
-    /// キューにない場合は空 Vec。同一トラックが複数回積まれている場合は複数の位置を含む。
+    /// 指定したトラックインデックスが queue の何番目（1始まり）に存在するか返す。
+    /// 表示用途のため最大3件に制限（format_queue_badge が使うのは先頭2件 + 残り件数のみ）。
     pub fn queue_positions_for(&self, track_index: usize) -> Vec<usize> {
         self.queue
             .iter()
             .enumerate()
             .filter(|&(_, &idx)| idx == track_index)
             .map(|(pos, _)| pos + 1)
+            .take(3)
             .collect()
+    }
+
+    /// トラックインデックス → キュー内位置リスト（1始まり）の HashMap を返す。
+    /// draw() でフレームごとに O(N×Q) の走査を避けるため、キュー全体を一度だけ走査して構築する。
+    pub fn queue_badge_map(&self) -> HashMap<usize, Vec<usize>> {
+        let mut map: HashMap<usize, Vec<usize>> = HashMap::new();
+        for (pos, &idx) in self.queue.iter().enumerate() {
+            map.entry(idx).or_default().push(pos + 1);
+        }
+        map
     }
 
     /// リピートモードをサイクルする。

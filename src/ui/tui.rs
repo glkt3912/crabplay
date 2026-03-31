@@ -16,6 +16,7 @@ use ratatui::{
         ScrollbarState,
     },
 };
+use std::collections::HashMap;
 use std::io;
 use unicode_width::UnicodeWidthStr;
 
@@ -65,7 +66,17 @@ fn event_loop<B: ratatui::backend::Backend>(
     let mut last_selected = state.selected;
 
     loop {
-        terminal.draw(|f| draw(f, state, player, &mut list_state, marquee_offset))?;
+        let queue_badge_map = state.queue_badge_map();
+        terminal.draw(|f| {
+            draw(
+                f,
+                state,
+                player,
+                &mut list_state,
+                marquee_offset,
+                &queue_badge_map,
+            )
+        })?;
 
         if event::poll(std::time::Duration::from_millis(200))?
             && let Event::Key(key) = event::read()?
@@ -204,10 +215,13 @@ fn format_queue_badge(positions: &[usize]) -> String {
     let s = match positions {
         [] => return " ".repeat(BADGE_WIDTH),
         [p] => format!("[{}]", p),
+        // "[x,y]" は5文字。BADGE_WIDTH(6) に収まるのは両方が1桁のときのみ
         [p1, p2] if *p1 < 10 && *p2 < 10 => format!("[{},{}]", p1, p2),
         [p1, rest @ ..] => format!("[{}+{}]", p1, rest.len()),
     };
-    format!("{:<width$}", s, width = BADGE_WIDTH)
+    // p1 や rest.len() が多桁になり BADGE_WIDTH を超えた場合に切り詰める
+    let truncated: String = s.chars().take(BADGE_WIDTH).collect();
+    format!("{:<width$}", truncated, width = BADGE_WIDTH)
 }
 
 /// 文字列を表示幅ベースでスクロールし、max_width 幅に収めて返す。
@@ -257,6 +271,7 @@ fn draw(
     player: &Player,
     list_state: &mut ListState,
     marquee_offset: usize,
+    queue_badge_map: &HashMap<usize, Vec<usize>>,
 ) {
     // 3分割レイアウト: トラックリスト / 再生情報 / キーバインド
     let chunks = Layout::default()
@@ -320,7 +335,12 @@ fn draw(
                     Style::default().fg(Color::DarkGray),
                 ),
                 Span::styled(
-                    format!(" {}", format_queue_badge(&state.queue_positions_for(i))),
+                    format!(
+                        " {}",
+                        format_queue_badge(
+                            queue_badge_map.get(&i).map(Vec::as_slice).unwrap_or(&[])
+                        )
+                    ),
                     Style::default().fg(Color::Magenta),
                 ),
             ]);
@@ -413,25 +433,34 @@ mod tests {
     #[test]
     fn badge_empty() {
         assert_eq!(format_queue_badge(&[]), "      ");
-        assert_eq!(format_queue_badge(&[]).len(), BADGE_WIDTH);
+        assert_eq!(
+            UnicodeWidthStr::width(format_queue_badge(&[]).as_str()),
+            BADGE_WIDTH
+        );
     }
 
     #[test]
     fn badge_single() {
         assert_eq!(format_queue_badge(&[1]), "[1]   ");
-        assert_eq!(format_queue_badge(&[1]).len(), BADGE_WIDTH);
+        assert_eq!(
+            UnicodeWidthStr::width(format_queue_badge(&[1]).as_str()),
+            BADGE_WIDTH
+        );
     }
 
     #[test]
     fn badge_two_single_digits() {
         assert_eq!(format_queue_badge(&[1, 3]), "[1,3] ");
-        assert_eq!(format_queue_badge(&[1, 3]).len(), BADGE_WIDTH);
+        assert_eq!(
+            UnicodeWidthStr::width(format_queue_badge(&[1, 3]).as_str()),
+            BADGE_WIDTH
+        );
     }
 
     #[test]
     fn badge_many() {
         let result = format_queue_badge(&[2, 4, 6]);
-        assert_eq!(result.len(), BADGE_WIDTH);
+        assert_eq!(UnicodeWidthStr::width(result.as_str()), BADGE_WIDTH);
         assert!(result.starts_with("[2+2]"));
     }
 
@@ -439,7 +468,7 @@ mod tests {
     fn badge_always_badge_width() {
         for positions in [vec![], vec![1], vec![1, 2], vec![1, 2, 3], vec![10, 20]] {
             assert_eq!(
-                format_queue_badge(&positions).len(),
+                UnicodeWidthStr::width(format_queue_badge(&positions).as_str()),
                 BADGE_WIDTH,
                 "positions = {:?}",
                 positions
