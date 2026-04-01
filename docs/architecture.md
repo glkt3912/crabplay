@@ -103,27 +103,32 @@ ui::tui::run()
   └── event_loop()
         ├── marquee_offset / marquee_tick  マーキースクロール状態（ローカル変数）
         ├── queue_badge_map / queue_dirty  バッジキャッシュ（キュー変更時のみ再計算）
+        ├── ui_mode / picker_entries / picker_selected  ソース選択オーバーレイの状態
         ├── 各フレーム先頭で:
         │     ├── tick_timeouts()  info_msg 3秒 / last_error 5秒 を過ぎたら自動クリア
         │     └── queue_dirty == true なら queue_badge_map を再計算してフラグをリセット
-        ├── terminal.draw(|f| draw(f, ..., &queue_badge_map))
+        ├── terminal.draw(|f| draw(f, ..., &queue_badge_map, ui_mode, picker_entries, picker_selected))
         └── event::poll(200ms)    キーイベント待機
-              ├── clear_messages()  ← 全キーイベントの先頭で実行
-              ├── match key.code
-              │     ├── Enter/n/p → play_current()             再生ヘルパー
-              │     │               ├── clear_messages() で last_error/error_since/info_msg を全クリア
-              │     │               └── load_and_play() 成功 → set_playing()（playback_started_at を記録）
-              │     │               └── load_and_play() 失敗 → set_error() + set_stopped()
-              │     ├── Space  → PlayerState::Stopped のときは無視（空 Sink への play() による状態破壊を防止）
-              │     │           Player::toggle_pause() → bool 戻り値で分岐
-              │     │           ├── true  → set_paused()
-              │     │           └── false → set_resumed()  ※playing_index/playback_started_at は変えない
-              │     ├── ↑/↓   → AppState::next/prev()
-              │     ├── a      → enqueue_selected() + queue_dirty = true → set_info() でキュー件数（3秒表示）
-              │     ├── c      → clear_queue() + queue_dirty = true → set_info() で "Queue cleared"（3秒）
-              │     ├── r      → cycle_repeat() → set_info() でモード表示（3秒）
-              │     ├── s      → save_playlist() → set_info() で保存先パス（3秒）/ set_error() でエラー（5秒）
-              │     └── q      → Player::stop() → break
+              ├── match ui_mode
+              │     ├── UiMode::Normal
+              │     │     ├── clear_messages()  ← Normal キーの先頭で実行
+              │     │     ├── Enter/n/p → play_current()
+              │     │     │               ├── clear_messages() で全メッセージクリア
+              │     │     │               └── load_and_play() 成功 → set_playing() / 失敗 → set_error() + set_stopped()
+              │     │     ├── Space  → PlayerState::Stopped のときは無視
+              │     │     │           Player::toggle_pause() → true → set_paused() / false → set_resumed()
+              │     │     ├── ↑/↓   → AppState::next/prev()
+              │     │     ├── a      → enqueue_selected() + queue_dirty = true → set_info() でキュー件数（3秒）
+              │     │     ├── c      → clear_queue() + queue_dirty = true → set_info() で "Queue cleared"（3秒）
+              │     │     ├── r      → cycle_repeat() → set_info() でモード表示（3秒）
+              │     │     ├── s      → save_playlist() → set_info() で保存先パス（3秒）/ set_error()（5秒）
+              │     │     ├── o      → build_source_entries() → ui_mode = SourcePicker
+              │     │     └── q      → Player::stop() → break
+              │     └── UiMode::SourcePicker
+              │           ├── ↑/↓   → picker_selected を移動
+              │           ├── Enter  → load_source() → replace_tracks() + set_info() → ui_mode = Normal
+              │           ├── Esc    → ui_mode = Normal（変更なし）
+              │           └── その他 → 無視（Normal キーを誤処理しない）
               ├── 選択変更検知 → marquee_offset / tick リセット
               ├── 5フレームごと → marquee_offset += 1
               └── is_playback_settled() && rodio::Sink::empty()（再生バッファ空 = トラック完了）
@@ -140,6 +145,7 @@ ui::tui::run()
   - タイトル列・アーティスト列の幅は固定値ではなく、`chunks[0].width` からターミナル幅を取得して動的に計算（詳細は後述）
 - **Now Playing** (中段 `Constraint::Length(3)`): 再生状態・曲名・アーティスト・経過時間 / 合計時間。`info_msg` があれば緑色、`last_error` があれば赤色で優先表示。
 - **キーバインド** (下段 `Constraint::Length(3)`): 現在の `repeat` モードをリアルタイム表示する動的文字列。端末幅が狭くて文字列が収まらない場合はマーキースクロール。配色 `Color::LightCyan`。
+- **ソース選択オーバーレイ** (`UiMode::SourcePicker` 時のみ): `o` キーで開く中央ポップアップ。`centered_rect(70%, 60%)` で算出した領域を `Clear` でクリアしてから `draw_source_picker()` で描画。先頭にディレクトリエントリ、以降に保存済みプレイリスト（mtime 降順・全件）を `List` で表示。ボーダー `Color::Yellow`、選択行 `bg(DarkGray) + BOLD`。
 
 ### マーキースクロール実装
 
@@ -181,6 +187,7 @@ artist_width     = max(available - title_width, ARTIST_MIN=12)
 pub struct AppState {
     pub tracks: Vec<TrackInfo>,
     pub selected: usize,
+    pub source_dir: PathBuf,         // 起動時スキャンディレクトリ（ソース選択で再利用）
     player_state: PlayerState,       // 非公開、遷移メソッド経由で変更
     pub last_error: Option<String>,
     error_since: Option<Instant>,    // last_error の表示開始時刻（5秒タイムアウト用）
@@ -205,6 +212,7 @@ pub struct AppState {
 | `tick_timeouts()` | `error_since` 5秒・`info_since` 3秒を過ぎていれば各メッセージを自動クリア。イベントループ先頭で毎フレーム呼ぶ |
 | `clear_messages()` | `last_error` / `error_since` / `info_msg` / `info_since` を全クリア |
 | `player_state()` | `PlayerState`（Copy）を値で返す。`&PlayerState` ではないため呼び出し側で `*` デリファレンス不要 |
+| `replace_tracks(tracks)` | ソース切り替え時にトラック一覧と全再生状態をリセット。`player.stop()` は呼び出し側の責務。このメソッド後に `set_info()` を呼ぶと通知メッセージを表示できる |
 | `enqueue_selected()` / `clear_queue()` | キュー操作 |
 | `queue_len()` / `queue_is_empty()` / `queue_paths()` | キュー参照（読み取り専用） |
 | `queue_positions_for(track_index)` | 指定インデックスがキューの何番目にあるかを `Vec<usize>`（1始まり）で返す。最大3件に制限 |

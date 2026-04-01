@@ -681,7 +681,7 @@ fn draw(
     // キーバインドペイン（リピートモード表示付き）
     // テキストがターミナル幅を超える場合はマーキースクロール
     let keybinds_raw = format!(
-        " [↑↓] select  [Enter] play  [Space] pause  [n/p] move+play  [a] queue  [c] clear  [r] repeat:{}  [s] save  [o] open  [q] quit",
+        " [↑↓] select  [Enter] play  [Space] pause  [n/p] move+play  [a] queue  [c] clear  [r] repeat:{}  [s] save playlist  [o] load playlist  [q] quit",
         state.repeat.label()
     );
     let keybinds_inner_width = chunks[2].width.saturating_sub(2) as usize;
