@@ -47,6 +47,8 @@ pub struct AppState {
     error_since: Option<std::time::Instant>,
     /// 操作成功などの情報メッセージ。
     pub info_msg: Option<String>,
+    /// info_msg の表示開始時刻（3秒後に自動クリア）。
+    info_since: Option<std::time::Instant>,
     /// 再生キュー（tracks のインデックス列）。外部からは queue_len() / enqueue_selected() / clear_queue() を使う。
     queue: VecDeque<usize>,
     /// リピートモード。
@@ -65,6 +67,7 @@ impl AppState {
             last_error: None,
             error_since: None,
             info_msg: None,
+            info_since: None,
             queue: VecDeque::new(),
             repeat: RepeatMode::Off,
             playback_started_at: None,
@@ -192,8 +195,14 @@ impl AppState {
         self.error_since = Some(std::time::Instant::now());
     }
 
-    /// エラーが 5秒以上表示されていれば自動クリアする。イベントループの先頭で毎フレーム呼ぶ。
-    pub fn tick_error_timeout(&mut self) {
+    /// 情報メッセージをセットし、3秒タイムアウト用の時刻を記録する。
+    pub fn set_info(&mut self, msg: String) {
+        self.info_msg = Some(msg);
+        self.info_since = Some(std::time::Instant::now());
+    }
+
+    /// info_msg（3秒）と last_error（5秒）の自動クリアを行う。イベントループの先頭で毎フレーム呼ぶ。
+    pub fn tick_timeouts(&mut self) {
         if self
             .error_since
             .map(|t| t.elapsed() >= std::time::Duration::from_secs(5))
@@ -202,6 +211,14 @@ impl AppState {
             self.last_error = None;
             self.error_since = None;
         }
+        if self
+            .info_since
+            .map(|t| t.elapsed() >= std::time::Duration::from_secs(3))
+            .unwrap_or(false)
+        {
+            self.info_msg = None;
+            self.info_since = None;
+        }
     }
 
     /// エラー・情報メッセージを両方クリアする。
@@ -209,6 +226,7 @@ impl AppState {
         self.last_error = None;
         self.error_since = None;
         self.info_msg = None;
+        self.info_since = None;
     }
 
     /// 現在のトラック終了後に次へ進む。

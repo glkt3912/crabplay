@@ -70,7 +70,7 @@ fn event_loop<B: ratatui::backend::Backend>(
     let mut queue_dirty = false;
 
     loop {
-        state.tick_error_timeout();
+        state.tick_timeouts();
 
         if queue_dirty {
             queue_badge_map = state.queue_badge_map();
@@ -136,18 +136,18 @@ fn event_loop<B: ratatui::backend::Backend>(
                 KeyCode::Char('a') => {
                     state.enqueue_selected();
                     queue_dirty = true;
-                    state.info_msg = Some(format!("Queued: {} track(s)", state.queue_len()));
+                    state.set_info(format!("Queued: {} track(s)", state.queue_len()));
                 }
                 // キューをクリア
                 KeyCode::Char('c') => {
                     state.clear_queue();
                     queue_dirty = true;
-                    state.info_msg = Some("Queue cleared".to_string());
+                    state.set_info("Queue cleared".to_string());
                 }
                 // リピートモードをサイクル
                 KeyCode::Char('r') => {
                     state.cycle_repeat();
-                    state.info_msg = Some(format!("Repeat: {}", state.repeat.label()));
+                    state.set_info(format!("Repeat: {}", state.repeat.label()));
                 }
                 // キュー（空の場合は全トラック）をプレイリストとして保存
                 KeyCode::Char('s') => {
@@ -223,7 +223,7 @@ fn save_playlist(state: &mut AppState) {
 
     let playlist = Playlist::new(&name, paths);
     match playlist.save(&Playlist::default_dir()) {
-        Ok(dest) => state.info_msg = Some(format!("Saved: {}", dest.display())),
+        Ok(dest) => state.set_info(format!("Saved: {}", dest.display())),
         Err(e) => state.set_error(e.to_string()),
     }
 }
