@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 
 use crate::models::TrackInfo;
 
@@ -39,6 +40,8 @@ pub enum PlayerState {
 pub struct AppState {
     pub tracks: Vec<TrackInfo>,
     pub selected: usize,
+    /// 起動時のスキャンディレクトリ。ソース選択でディレクトリに戻る際に使用。
+    pub source_dir: PathBuf,
     playing_index: Option<usize>,
     player_state: PlayerState,
     /// 直近の再生エラーメッセージ。
@@ -58,10 +61,11 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(tracks: Vec<TrackInfo>) -> Self {
+    pub fn new(tracks: Vec<TrackInfo>, source_dir: PathBuf) -> Self {
         Self {
             tracks,
             selected: 0,
+            source_dir,
             playing_index: None,
             player_state: PlayerState::Stopped,
             last_error: None,
@@ -122,6 +126,22 @@ impl AppState {
         self.playing_index = None;
         self.player_state = PlayerState::Stopped;
         self.playback_started_at = None;
+    }
+
+    /// ソース切り替え時にトラック一覧と全再生状態をリセットする。
+    /// `player.stop()` の呼び出しは呼び出し側の責務。
+    /// このメソッド後に `set_info()` を呼ぶと通知メッセージを表示できる。
+    pub fn replace_tracks(&mut self, tracks: Vec<TrackInfo>) {
+        self.tracks = tracks;
+        self.selected = 0;
+        self.playing_index = None;
+        self.player_state = PlayerState::Stopped;
+        self.playback_started_at = None;
+        self.queue.clear();
+        self.last_error = None;
+        self.error_since = None;
+        self.info_msg = None;
+        self.info_since = None;
     }
 
     /// 再生開始（またはポーズ解除）から 500ms 以上経過したか。
@@ -291,7 +311,30 @@ mod tests {
                 duration_secs: 180,
             })
             .collect();
-        AppState::new(tracks)
+        AppState::new(tracks, PathBuf::from("."))
+    }
+
+    #[test]
+    fn replace_tracks_resets_all_state() {
+        let mut state = make_state(3);
+        state.selected = 2;
+        state.set_playing(); // playing_index = Some(2)
+        state.enqueue_selected();
+        state.set_error("err".to_string());
+        let new_tracks = vec![TrackInfo {
+            path: PathBuf::from("/new.mp3"),
+            title: "New".to_string(),
+            artist: "A".to_string(),
+            album: "B".to_string(),
+            duration_secs: 60,
+        }];
+        state.replace_tracks(new_tracks);
+        assert_eq!(state.tracks.len(), 1);
+        assert_eq!(state.selected, 0);
+        assert_eq!(state.playing_index(), None);
+        assert!(state.queue_is_empty());
+        assert!(state.last_error.is_none());
+        assert!(state.info_msg.is_none());
     }
 
     #[test]
@@ -346,7 +389,7 @@ mod tests {
 
     #[test]
     fn advance_repeat_all_empty_tracks() {
-        let mut state = AppState::new(vec![]);
+        let mut state = AppState::new(vec![], PathBuf::from("."));
         state.repeat = RepeatMode::All;
         assert!(!state.advance());
     }

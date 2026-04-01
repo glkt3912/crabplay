@@ -48,7 +48,8 @@ fn run(args: &Args) -> Result<()> {
     }
 
     let player = Player::new().context("failed to initialize audio")?;
-    let mut state = AppState::new(tracks);
+    let canonical_dir = args.dir.canonicalize().unwrap_or_else(|_| args.dir.clone());
+    let mut state = AppState::new(tracks, canonical_dir);
     tui::run(&mut state, &player).context("TUI error")?;
 
     Ok(())
