@@ -9,7 +9,7 @@
       "description": "モジュール依存関係、データフロー、エラーハンドリング設計、TUI構造、AppState設計（PlayerState Copy/player_state()値返し/set_resumed playback_started_at非更新/advance RepeatMode修正含む）、Spaceキー Stopped ガード、play_current clear_messages統一、マーキースクロール（CJK 中間列空白補完・UnicodeWidthChar）、pad_display()、Playlistモジュール（サブ秒ファイル名）",
       "tags": ["設計", "アーキテクチャ", "モジュール", "TUI", "オーディオ", "プレイリスト"],
       "topics": ["モジュール構成", "エラーハンドリング", "データフロー", "再生エンジン", "TUIアーキテクチャ", "AppState", "PlayerState", "TerminalGuard", "マーキー", "CJKパディング", "CJK中間列", "pad_display", "UnicodeWidthChar", "自動次曲", "キュー", "queue_dirty", "キューバッジ", "queue_badge_map", "RepeatMode", "is_playback_settled", "set_error", "tick_error_timeout", "Playlist", "XDG", "set_resumed", "advance優先順位"],
-      "updatedAt": "2026-04-01"
+      "updatedAt": "2026-04-02"
     },
     {
       "id": "crate-guide",

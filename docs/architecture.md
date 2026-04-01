@@ -104,7 +104,7 @@ ui::tui::run()
         ├── marquee_offset / marquee_tick  マーキースクロール状態（ローカル変数）
         ├── queue_badge_map / queue_dirty  バッジキャッシュ（キュー変更時のみ再計算）
         ├── 各フレーム先頭で:
-        │     ├── tick_error_timeout()  5秒以上経過した last_error を自動クリア
+        │     ├── tick_timeouts()  info_msg 3秒 / last_error 5秒 を過ぎたら自動クリア
         │     └── queue_dirty == true なら queue_badge_map を再計算してフラグをリセット
         ├── terminal.draw(|f| draw(f, ..., &queue_badge_map))
         └── event::poll(200ms)    キーイベント待機
@@ -119,10 +119,10 @@ ui::tui::run()
               │     │           ├── true  → set_paused()
               │     │           └── false → set_resumed()  ※playing_index/playback_started_at は変えない
               │     ├── ↑/↓   → AppState::next/prev()
-              │     ├── a      → enqueue_selected() + queue_dirty = true → info_msg にキュー件数
-              │     ├── c      → clear_queue() + queue_dirty = true → info_msg に "Queue cleared"
-              │     ├── r      → cycle_repeat() → info_msg にモード表示
-              │     ├── s      → save_playlist() → 保存先パスを info_msg / set_error() でエラー記録
+              │     ├── a      → enqueue_selected() + queue_dirty = true → set_info() でキュー件数（3秒表示）
+              │     ├── c      → clear_queue() + queue_dirty = true → set_info() で "Queue cleared"（3秒）
+              │     ├── r      → cycle_repeat() → set_info() でモード表示（3秒）
+              │     ├── s      → save_playlist() → set_info() で保存先パス（3秒）/ set_error() でエラー（5秒）
               │     └── q      → Player::stop() → break
               ├── 選択変更検知 → marquee_offset / tick リセット
               ├── 5フレームごと → marquee_offset += 1
@@ -171,6 +171,7 @@ pub struct AppState {
     pub last_error: Option<String>,
     error_since: Option<Instant>,    // last_error の表示開始時刻（5秒タイムアウト用）
     pub info_msg: Option<String>,
+    info_since: Option<Instant>,     // info_msg の表示開始時刻（3秒タイムアウト用）
     queue: VecDeque<usize>,          // 非公開、アクセサ経由で操作
     pub repeat: RepeatMode,
     playback_started_at: Option<Instant>, // is_empty() 誤検知防止の再生開始時刻
@@ -186,8 +187,9 @@ pub struct AppState {
 | `set_paused()` / `set_stopped()` | 状態遷移。`playback_started_at` をクリア |
 | `is_playback_settled()` | 再生開始から 500ms 以上経過したか。`is_empty()` の誤検知ガード。`playback_started_at` が `None` のときは `true`（= チェック許可） |
 | `set_error(msg)` | `last_error` をセットし `error_since` に現在時刻を記録 |
-| `tick_error_timeout()` | `error_since` から 5秒以上経過していれば `last_error` を自動クリア |
-| `clear_messages()` | `last_error` / `error_since` / `info_msg` を全クリア |
+| `set_info(msg)` | `info_msg` をセットし `info_since` に現在時刻を記録 |
+| `tick_timeouts()` | `error_since` 5秒・`info_since` 3秒を過ぎていれば各メッセージを自動クリア。イベントループ先頭で毎フレーム呼ぶ |
+| `clear_messages()` | `last_error` / `error_since` / `info_msg` / `info_since` を全クリア |
 | `player_state()` | `PlayerState`（Copy）を値で返す。`&PlayerState` ではないため呼び出し側で `*` デリファレンス不要 |
 | `enqueue_selected()` / `clear_queue()` | キュー操作 |
 | `queue_len()` / `queue_is_empty()` / `queue_paths()` | キュー参照（読み取り専用） |
