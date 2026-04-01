@@ -111,11 +111,13 @@ ui::tui::run()
               ├── clear_messages()  ← 全キーイベントの先頭で実行
               ├── match key.code
               │     ├── Enter/n/p → play_current()             再生ヘルパー
+              │     │               ├── clear_messages() で last_error/error_since/info_msg を全クリア
               │     │               └── load_and_play() 成功 → set_playing()（playback_started_at を記録）
               │     │               └── load_and_play() 失敗 → set_error() + set_stopped()
-              │     ├── Space  → Player::toggle_pause() → bool 戻り値で分岐
+              │     ├── Space  → PlayerState::Stopped のときは無視（空 Sink への play() による状態破壊を防止）
+              │     │           Player::toggle_pause() → bool 戻り値で分岐
               │     │           ├── true  → set_paused()
-              │     │           └── false → set_resumed()  ※playing_index は変えない
+              │     │           └── false → set_resumed()  ※playing_index/playback_started_at は変えない
               │     ├── ↑/↓   → AppState::next/prev()
               │     ├── a      → enqueue_selected() + queue_dirty = true → info_msg にキュー件数
               │     ├── c      → clear_queue() + queue_dirty = true → info_msg に "Queue cleared"
@@ -141,19 +143,23 @@ ui::tui::run()
 
 ```
 marquee_slice(s: &str, offset: usize, max_width: usize) -> String
-  ├── col_table: Vec<(累積開始列, char, 表示幅)>  // 各文字の表示列情報を事前計算
+  ├── col_table: Vec<(累積開始列, char, 表示幅)>  // UnicodeWidthChar::width() で各文字の表示幅を計算
   ├── total_disp = Σ 表示幅          // 文字列全体の表示幅（列数）
   ├── loop_disp = total_disp + 2     // ループ幅 = 表示幅 + 2列の空白ギャップ
   ├── start_col = offset % loop_disp // offset は表示列単位（1増加 = 1列スクロール）
   └── while out_width < max_width:
         col % loop_disp が total_disp 以上 → 空白（ギャップ領域）
-        それ以外 → col_table を線形探索してその列の文字を出力
+        それ以外 → col_table を線形探索して pos 列の文字を取得
+          ├── pos == c_start（文字の先頭列）→ 文字を出力、col += 表示幅
+          └── pos > c_start（全角文字の中間列に offset が着地）→ 空白1列を出力して
+                col を c_start + w（次の文字の先頭）へ進める
         ※ offset を表示列ベースにすることで CJK 全角文字（1char = 2列）でも
           ASCII と同じ速度でスクロールする（旧実装: chars.len() ベースで 2 倍速になっていた）
 ```
 
 **CJK 対応パディング (`pad_display`):**  
-`format!("{:<N}", s)` は char 単位でパディングするため、全角文字を含む文字列では実際の表示列数が `N` を超える。`pad_display(s, width)` は `UnicodeWidthStr::width()` で表示幅を計算し、過不足なく `width` 列に揃える。マーキーを使わない非選択行のタイトル・アーティスト列に適用。
+`format!("{:<N}", s)` は char 単位でパディングするため、全角文字を含む文字列では実際の表示列数が `N` を超える。`pad_display(s, width)` は `UnicodeWidthChar::width()` で表示幅を計算し、過不足なく `width` 列に揃える。マーキーを使わない非選択行のタイトル・アーティスト列に適用。  
+表示幅取得には `UnicodeWidthChar::width(ch)` を使用（`encode_utf8` バッファ不要）。
 
 ## AppState の設計
 
@@ -176,13 +182,13 @@ pub struct AppState {
 | メソッド | 役割 |
 |---------|------|
 | `set_playing()` | 新規再生開始。`selected` を `playing_index` に設定。`playback_started_at` を記録 |
-| `set_resumed()` | ポーズ解除。`playing_index` は変えず状態だけ `Playing` に戻す。`playback_started_at` を更新 |
+| `set_resumed()` | ポーズ解除。`playing_index` は変えず状態だけ `Playing` に戻す。`playback_started_at` は変更しない（ポーズ解除は新規ロードではないため誤検知ガード不要） |
 | `set_paused()` / `set_stopped()` | 状態遷移。`playback_started_at` をクリア |
-| `is_playback_settled()` | 再生開始から 500ms 以上経過したか。`is_empty()` の誤検知ガード |
+| `is_playback_settled()` | 再生開始から 500ms 以上経過したか。`is_empty()` の誤検知ガード。`playback_started_at` が `None` のときは `true`（= チェック許可） |
 | `set_error(msg)` | `last_error` をセットし `error_since` に現在時刻を記録 |
 | `tick_error_timeout()` | `error_since` から 5秒以上経過していれば `last_error` を自動クリア |
 | `clear_messages()` | `last_error` / `error_since` / `info_msg` を全クリア |
-| `player_state()` | 読み取り専用アクセス |
+| `player_state()` | `PlayerState`（Copy）を値で返す。`&PlayerState` ではないため呼び出し側で `*` デリファレンス不要 |
 | `enqueue_selected()` / `clear_queue()` | キュー操作 |
 | `queue_len()` / `queue_is_empty()` / `queue_paths()` | キュー参照（読み取り専用） |
 | `queue_positions_for(track_index)` | 指定インデックスがキューの何番目にあるかを `Vec<usize>`（1始まり）で返す。最大3件に制限 |
@@ -196,13 +202,17 @@ pub struct AppState {
 advance() の優先順位:
   1. RepeatMode::One  → playing_index のトラックをリピート。selected を playing_index に戻す
                         ※ 再生中にカーソルが移動しても元のトラックに戻る。キューは消費しない
+                        ※ playing_index が None（停止中）の場合は false を返す
   2. queue に項目あり → pop_front() した index を selected にセット
-  3. RepeatMode::All  → (selected + 1) % tracks.len()
+  3. RepeatMode::All  → (playing_index + 1) % tracks.len()
+                        ※ selected ではなく playing_index を起点にするため、キュー消費後も
+                          プレイリスト全体の論理的な「次」から再開できる
   4. RepeatMode::Off  → selected + 1（末尾なら false を返して停止）
 ```
 
 RepeatMode::One を最優先にすることで、1曲リピート中にキューへ追加した曲が割り込まない。  
-`selected` を `playing_index` に戻す処理により、カーソル操作後も確実に同じトラックが再生される。  
+RepeatMode::All の起点を `playing_index` にすることで、キューで途中のトラックを再生した後も  
+プレイリスト順が維持される。  
 メッセージのクリアは `advance()` ではなく呼び出し側（TUI の auto-advance ブロック）の責務とする。
 
 ### キュー位置バッジ
