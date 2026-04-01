@@ -508,7 +508,7 @@ fn draw(
     };
     let keybinds = Paragraph::new(keybinds_display)
         .block(Block::default().borders(Borders::ALL))
-        .style(Style::default().fg(Color::DarkGray));
+        .style(Style::default().fg(Color::LightCyan));
 
     f.render_widget(keybinds, chunks[2]);
 }
