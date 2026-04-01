@@ -319,7 +319,13 @@ fn build_source_entries(source_dir: &PathBuf) -> Vec<SourceEntry> {
                     .ok()
                     .and_then(|m| m.modified().ok())
                     .unwrap_or(std::time::UNIX_EPOCH);
-                Some((mtime, SourceEntry::Playlist { path, name: pl.name }))
+                Some((
+                    mtime,
+                    SourceEntry::Playlist {
+                        path,
+                        name: pl.name,
+                    },
+                ))
             })
             .collect();
         // 更新日時の新しい順（全件）
@@ -336,70 +342,64 @@ fn load_source(state: &mut AppState, player: &Player, entry: &SourceEntry) {
     player.stop();
 
     match entry {
-        SourceEntry::Directory(dir) => {
-            match scan_directory(dir) {
-                Err(e) => {
-                    state.set_error(format!("Scan failed: {e}"));
+        SourceEntry::Directory(dir) => match scan_directory(dir) {
+            Err(e) => {
+                state.set_error(format!("Scan failed: {e}"));
+            }
+            Ok(paths) => {
+                let mut skip = 0usize;
+                let tracks: Vec<_> = paths
+                    .iter()
+                    .filter_map(|p| match read_metadata(p) {
+                        Ok(t) => Some(t),
+                        Err(_) => {
+                            skip += 1;
+                            None
+                        }
+                    })
+                    .collect();
+                if tracks.is_empty() {
+                    state.set_error(format!("No tracks found in '{}'", dir.display()));
+                    return;
                 }
-                Ok(paths) => {
-                    let mut skip = 0usize;
-                    let tracks: Vec<_> = paths
-                        .iter()
-                        .filter_map(|p| match read_metadata(p) {
-                            Ok(t) => Some(t),
-                            Err(_) => {
-                                skip += 1;
-                                None
-                            }
-                        })
-                        .collect();
-                    if tracks.is_empty() {
-                        state.set_error(format!("No tracks found in '{}'", dir.display()));
-                        return;
-                    }
-                    state.replace_tracks(tracks);
-                    if skip > 0 {
-                        state.set_info(format!("Loaded ({} file(s) skipped)", skip));
-                    } else {
-                        state.set_info("Source loaded".to_string());
-                    }
+                state.replace_tracks(tracks);
+                if skip > 0 {
+                    state.set_info(format!("Loaded ({} file(s) skipped)", skip));
+                } else {
+                    state.set_info("Source loaded".to_string());
                 }
             }
-        }
-        SourceEntry::Playlist { path, .. } => {
-            match Playlist::load(path) {
-                Err(e) => {
-                    state.set_error(format!("Failed to load playlist: {e}"));
+        },
+        SourceEntry::Playlist { path, .. } => match Playlist::load(path) {
+            Err(e) => {
+                state.set_error(format!("Failed to load playlist: {e}"));
+            }
+            Ok(pl) => {
+                let mut skip = 0usize;
+                let tracks: Vec<_> = pl
+                    .paths
+                    .iter()
+                    .filter(|p| p.exists())
+                    .filter_map(|p| match read_metadata(p) {
+                        Ok(t) => Some(t),
+                        Err(_) => {
+                            skip += 1;
+                            None
+                        }
+                    })
+                    .collect();
+                if tracks.is_empty() {
+                    state.set_error("Playlist is empty or all paths are missing".to_string());
+                    return;
                 }
-                Ok(pl) => {
-                    let mut skip = 0usize;
-                    let tracks: Vec<_> = pl
-                        .paths
-                        .iter()
-                        .filter(|p| p.exists())
-                        .filter_map(|p| match read_metadata(p) {
-                            Ok(t) => Some(t),
-                            Err(_) => {
-                                skip += 1;
-                                None
-                            }
-                        })
-                        .collect();
-                    if tracks.is_empty() {
-                        state.set_error(
-                            "Playlist is empty or all paths are missing".to_string(),
-                        );
-                        return;
-                    }
-                    state.replace_tracks(tracks);
-                    if skip > 0 {
-                        state.set_info(format!("Loaded ({} file(s) skipped)", skip));
-                    } else {
-                        state.set_info("Source loaded".to_string());
-                    }
+                state.replace_tracks(tracks);
+                if skip > 0 {
+                    state.set_info(format!("Loaded ({} file(s) skipped)", skip));
+                } else {
+                    state.set_info("Source loaded".to_string());
                 }
             }
-        }
+        },
     }
 }
 
@@ -703,7 +703,11 @@ fn draw(
 }
 
 /// 画面中央に percent_x × percent_y の矩形を返す。
-fn centered_rect(percent_x: u16, percent_y: u16, area: ratatui::layout::Rect) -> ratatui::layout::Rect {
+fn centered_rect(
+    percent_x: u16,
+    percent_y: u16,
+    area: ratatui::layout::Rect,
+) -> ratatui::layout::Rect {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -730,10 +734,7 @@ fn draw_source_picker(f: &mut ratatui::Frame, entries: &[SourceEntry], selected:
     let area = centered_rect(70, 60, f.area());
     f.render_widget(Clear, area);
 
-    let items: Vec<ListItem> = entries
-        .iter()
-        .map(|e| ListItem::new(e.label()))
-        .collect();
+    let items: Vec<ListItem> = entries.iter().map(|e| ListItem::new(e.label())).collect();
 
     let mut picker_list_state = ListState::default();
     picker_list_state.select(Some(selected));
