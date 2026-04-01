@@ -47,6 +47,13 @@ impl SourceEntry {
     }
 }
 
+/// ソース選択オーバーレイの描画用状態。`draw()` の引数を減らすためにまとめる。
+struct PickerState<'a> {
+    mode: UiMode,
+    entries: &'a [SourceEntry],
+    selected: usize,
+}
+
 /// パニック時も含めてターミナルを必ず復元するガード型。
 struct TerminalGuard;
 
@@ -105,6 +112,11 @@ fn event_loop<B: ratatui::backend::Backend>(
             queue_dirty = false;
         }
 
+        let picker = PickerState {
+            mode: ui_mode,
+            entries: &picker_entries,
+            selected: picker_selected,
+        };
         terminal.draw(|f| {
             draw(
                 f,
@@ -113,9 +125,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                 &mut list_state,
                 marquee_offset,
                 &queue_badge_map,
-                ui_mode,
-                &picker_entries,
-                picker_selected,
+                &picker,
             )
         })?;
 
@@ -200,9 +210,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                         ui_mode = UiMode::Normal;
                     }
                     KeyCode::Up => {
-                        if picker_selected > 0 {
-                            picker_selected -= 1;
-                        }
+                        picker_selected = picker_selected.saturating_sub(1);
                     }
                     KeyCode::Down => {
                         if picker_selected + 1 < picker_entries.len() {
@@ -297,8 +305,8 @@ fn save_playlist(state: &mut AppState) {
 }
 
 /// `o` キー押下時にソース一覧を構築する。毎回呼ぶことで常に最新の状態を反映する。
-fn build_source_entries(source_dir: &PathBuf) -> Vec<SourceEntry> {
-    let mut entries = vec![SourceEntry::Directory(source_dir.clone())];
+fn build_source_entries(source_dir: &std::path::Path) -> Vec<SourceEntry> {
+    let mut entries = vec![SourceEntry::Directory(source_dir.to_path_buf())];
 
     let pl_dir = Playlist::default_dir();
     if let Ok(read_dir) = std::fs::read_dir(&pl_dir) {
@@ -526,9 +534,7 @@ fn draw(
     list_state: &mut ListState,
     marquee_offset: usize,
     queue_badge_map: &HashMap<usize, Vec<usize>>,
-    ui_mode: UiMode,
-    picker_entries: &[SourceEntry],
-    picker_selected: usize,
+    picker: &PickerState,
 ) {
     // 3分割レイアウト: トラックリスト / 再生情報 / キーバインド
     let chunks = Layout::default()
@@ -697,8 +703,8 @@ fn draw(
     f.render_widget(keybinds, chunks[2]);
 
     // ソース選択オーバーレイ（SourcePicker モード時のみ）
-    if ui_mode == UiMode::SourcePicker {
-        draw_source_picker(f, picker_entries, picker_selected);
+    if picker.mode == UiMode::SourcePicker {
+        draw_source_picker(f, picker.entries, picker.selected);
     }
 }
 
