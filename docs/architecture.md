@@ -136,8 +136,10 @@ ui::tui::run()
 描画は `draw()` 関数で 3 ペインに分割:
 
 - **トラックリスト** (上部 `Constraint::Min(3)`): `List` ウィジェット + `Scrollbar`。選択行ハイライト。長いタイトル・アーティスト名はマーキースクロール。各行末尾にキュー位置バッジ（後述）を表示。
+  - 各行の配色: 曲名 `Color::Green`、アーティスト `Color::Cyan`、時間 `Color::DarkGray`、キューバッジ `Color::Magenta`
+  - タイトル列・アーティスト列の幅は固定値ではなく、`chunks[0].width` からターミナル幅を取得して動的に計算（詳細は後述）
 - **Now Playing** (中段 `Constraint::Length(3)`): 再生状態・曲名・アーティスト・経過時間 / 合計時間。`info_msg` があれば緑色、`last_error` があれば赤色で優先表示。
-- **キーバインド** (下段 `Constraint::Length(3)`): 現在の `repeat` モードをリアルタイム表示する動的文字列。
+- **キーバインド** (下段 `Constraint::Length(3)`): 現在の `repeat` モードをリアルタイム表示する動的文字列。端末幅が狭くて文字列が収まらない場合はマーキースクロール。配色 `Color::LightCyan`。
 
 ### マーキースクロール実装
 
@@ -156,6 +158,18 @@ marquee_slice(s: &str, offset: usize, max_width: usize) -> String
         ※ offset を表示列ベースにすることで CJK 全角文字（1char = 2列）でも
           ASCII と同じ速度でスクロールする（旧実装: chars.len() ベースで 2 倍速になっていた）
 ```
+
+### タイトル列・アーティスト列の動的幅
+
+```
+list_inner_width = chunks[0].width - 2   // ボーダー除く
+fixed_overhead   = 18                    // ボーダー2 + マーカー2 + スペース1 + 時間6 + バッジ7
+available        = list_inner_width - fixed_overhead
+title_width      = max(available × 62%, TITLE_MIN=20)
+artist_width     = max(available - title_width, ARTIST_MIN=12)
+```
+
+ターミナルを広げると列が自動で伸び、狭くしても最低 曲名20列・アーティスト12列を確保する。
 
 **CJK 対応パディング (`pad_display`):**  
 `format!("{:<N}", s)` は char 単位でパディングするため、全角文字を含む文字列では実際の表示列数が `N` を超える。`pad_display(s, width)` は `UnicodeWidthChar::width()` で表示幅を計算し、過不足なく `width` 列に揃える。マーキーを使わない非選択行のタイトル・アーティスト列に適用。  

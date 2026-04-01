@@ -362,9 +362,15 @@ fn draw(
         ])
         .split(f.area());
 
-    // タイトル列・アーティスト列・キューバッジの表示幅
-    const TITLE_WIDTH: usize = 30;
-    const ARTIST_WIDTH: usize = 20;
+    // タイトル列・アーティスト列の表示幅をターミナル幅に合わせて動的に計算する。
+    // 固定オーバーヘッド: ボーダー2 + マーカー2 + スペース1 + 時間6 + バッジ7 = 18
+    const FIXED_OVERHEAD: usize = 18;
+    const TITLE_MIN: usize = 20;
+    const ARTIST_MIN: usize = 12;
+    let list_inner_width = chunks[0].width.saturating_sub(2) as usize;
+    let available = list_inner_width.saturating_sub(FIXED_OVERHEAD);
+    let title_width = (available * 62 / 100).max(TITLE_MIN);
+    let artist_width = available.saturating_sub(title_width).max(ARTIST_MIN);
 
     // トラックリスト
     let items: Vec<ListItem> = state
@@ -387,28 +393,28 @@ fn draw(
 
             let (title_str, artist_str) = if i == state.selected {
                 // 選択中: 表示幅を超える場合にマーキー
-                let title_disp = if UnicodeWidthStr::width(t.title.as_str()) > TITLE_WIDTH {
-                    marquee_slice(&t.title, marquee_offset, TITLE_WIDTH)
+                let title_disp = if UnicodeWidthStr::width(t.title.as_str()) > title_width {
+                    marquee_slice(&t.title, marquee_offset, title_width)
                 } else {
-                    pad_display(&t.title, TITLE_WIDTH)
+                    pad_display(&t.title, title_width)
                 };
-                let artist_disp = if UnicodeWidthStr::width(artist) > ARTIST_WIDTH {
-                    marquee_slice(artist, marquee_offset, ARTIST_WIDTH)
+                let artist_disp = if UnicodeWidthStr::width(artist) > artist_width {
+                    marquee_slice(artist, marquee_offset, artist_width)
                 } else {
-                    pad_display(artist, ARTIST_WIDTH)
+                    pad_display(artist, artist_width)
                 };
                 (title_disp, artist_disp)
             } else {
                 // pad_display で表示幅ベースのパディング（CJK 全角文字対応）
                 (
-                    pad_display(&t.title, TITLE_WIDTH),
-                    pad_display(artist, ARTIST_WIDTH),
+                    pad_display(&t.title, title_width),
+                    pad_display(artist, artist_width),
                 )
             };
 
             let line = Line::from(vec![
                 Span::raw(marker),
-                Span::styled(title_str, Style::default().fg(Color::White)),
+                Span::styled(title_str, Style::default().fg(Color::Green)),
                 Span::styled(format!(" {}", artist_str), Style::default().fg(Color::Cyan)),
                 Span::styled(
                     format!(" {:>2}:{:02}", mins, secs),
