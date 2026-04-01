@@ -34,6 +34,8 @@ pub enum PlayerState {
     Paused,
 }
 
+// PlayerState は Copy なので参照ではなく値で返す。呼び出し側で * デリファレンス不要。
+
 pub struct AppState {
     pub tracks: Vec<TrackInfo>,
     pub selected: usize,
@@ -90,8 +92,8 @@ impl AppState {
         self.playing_index
     }
 
-    pub fn player_state(&self) -> &PlayerState {
-        &self.player_state
+    pub fn player_state(&self) -> PlayerState {
+        self.player_state
     }
 
     /// 新規再生開始。selected を playing_index に設定し、is_empty() 誤検知防止のため開始時刻を記録する。
@@ -102,9 +104,10 @@ impl AppState {
     }
 
     /// ポーズ解除。playing_index は変えずに状態だけ Playing に戻す。
+    /// ポーズ解除は新規ロードではないため playback_started_at は更新しない。
+    /// （更新すると残り時間の短い曲の終了検知が最大 500ms 遅延する）
     pub fn set_resumed(&mut self) {
         self.player_state = PlayerState::Playing;
-        self.playback_started_at = Some(std::time::Instant::now());
     }
 
     pub fn set_paused(&mut self) {
@@ -222,10 +225,12 @@ impl AppState {
     pub fn advance(&mut self) -> bool {
         if self.repeat == RepeatMode::One {
             // ループ対象は「現在再生中のトラック」。カーソルがずれても元のトラックに戻す。
+            // playing_index が None（停止中）の場合はリピート不可として false を返す。
             if let Some(idx) = self.playing_index {
                 self.selected = idx;
+                return true;
             }
-            return true;
+            return false;
         }
         if let Some(idx) = self.queue.pop_front() {
             self.selected = idx;
@@ -235,7 +240,10 @@ impl AppState {
             if self.tracks.is_empty() {
                 return false;
             }
-            self.selected = (self.selected + 1) % self.tracks.len();
+            // playing_index を起点にすることで、キュー消費後も
+            // プレイリスト全体の論理的な「次」から再開できる。
+            let base = self.playing_index.unwrap_or(self.selected);
+            self.selected = (base + 1) % self.tracks.len();
             true
         } else {
             // RepeatMode::Off
@@ -291,6 +299,51 @@ mod tests {
         state.enqueue_selected();
         state.enqueue_selected();
         assert_eq!(state.queue_positions_for(0), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn is_playback_settled_when_never_started() {
+        let state = make_state(1);
+        // playback_started_at が None → settled (unwrap_or(true))
+        assert!(state.is_playback_settled());
+    }
+
+    #[test]
+    fn advance_repeat_one_returns_false_when_not_playing() {
+        let mut state = make_state(3);
+        state.repeat = RepeatMode::One;
+        // playing_index = None → advance() は false
+        assert!(!state.advance());
+    }
+
+    #[test]
+    fn advance_repeat_all_loops_around() {
+        let mut state = make_state(3);
+        state.selected = 2;
+        state.set_playing(); // playing_index = Some(2)
+        state.repeat = RepeatMode::All;
+        assert!(state.advance());
+        assert_eq!(state.selected, 0); // 末尾から先頭へ
+    }
+
+    #[test]
+    fn advance_repeat_all_empty_tracks() {
+        let mut state = AppState::new(vec![]);
+        state.repeat = RepeatMode::All;
+        assert!(!state.advance());
+    }
+
+    #[test]
+    fn advance_repeat_all_uses_playing_index_as_base() {
+        let mut state = make_state(5);
+        state.selected = 0;
+        state.set_playing(); // playing_index = Some(0)
+        // カーソルを 3 に移動（再生中にブラウジング）
+        state.selected = 3;
+        state.repeat = RepeatMode::All;
+        // playing_index(0) + 1 = 1 になるはず（selected(3) + 1 = 4 ではない）
+        assert!(state.advance());
+        assert_eq!(state.selected, 1);
     }
 
     #[test]
