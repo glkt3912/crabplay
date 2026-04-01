@@ -495,11 +495,18 @@ fn draw(
     f.render_widget(now_playing_widget, chunks[1]);
 
     // キーバインドペイン（リピートモード表示付き）
-    let keybinds_text = format!(
+    // テキストがターミナル幅を超える場合はマーキースクロール
+    let keybinds_raw = format!(
         " [↑↓] select  [Enter] play  [Space] pause  [n/p] move+play  [a] queue  [c] clear  [r] repeat:{}  [s] save  [q] quit",
         state.repeat.label()
     );
-    let keybinds = Paragraph::new(keybinds_text)
+    let keybinds_inner_width = chunks[2].width.saturating_sub(2) as usize;
+    let keybinds_display = if UnicodeWidthStr::width(keybinds_raw.as_str()) > keybinds_inner_width {
+        marquee_slice(&keybinds_raw, marquee_offset, keybinds_inner_width)
+    } else {
+        keybinds_raw
+    };
+    let keybinds = Paragraph::new(keybinds_display)
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default().fg(Color::DarkGray));
 
