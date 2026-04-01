@@ -18,7 +18,7 @@ use ratatui::{
 };
 use std::collections::HashMap;
 use std::io;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::{AppState, PlayerState};
 use crate::audio::player::Player;
@@ -112,10 +112,14 @@ fn event_loop<B: ratatui::backend::Backend>(
                     play_current(state, player);
                 }
                 KeyCode::Char(' ') => {
-                    if player.toggle_pause() {
-                        state.set_paused();
-                    } else {
-                        state.set_resumed();
+                    // Stopped 状態で toggle_pause() を呼ぶと sink.play() が走り
+                    // playing_index=None のまま PlayerState::Playing になるため除外する
+                    if state.player_state() != PlayerState::Stopped {
+                        if player.toggle_pause() {
+                            state.set_paused();
+                        } else {
+                            state.set_resumed();
+                        }
                     }
                 }
                 KeyCode::Char('n') => {
@@ -191,8 +195,7 @@ fn event_loop<B: ratatui::backend::Backend>(
 }
 
 fn play_current(state: &mut AppState, player: &Player) {
-    state.last_error = None;
-    state.info_msg = None;
+    state.clear_messages();
     if let Some(track) = state.tracks.get(state.selected) {
         let path = track.path.clone();
         match player.load_and_play(&path) {
@@ -208,7 +211,7 @@ fn play_current(state: &mut AppState, player: &Player) {
 fn save_playlist(state: &mut AppState) {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock is before UNIX epoch");
+        .unwrap_or_default();
     // サブ秒精度（ミリ秒）を付加して同一秒内の上書きを防止
     let name = format!("playlist_{}_{:03}", ts.as_secs(), ts.subsec_millis());
 
@@ -238,8 +241,7 @@ fn pad_display(s: &str, width: usize) -> String {
         let mut out = String::new();
         let mut w = 0usize;
         for c in s.chars() {
-            let mut buf = [0u8; 4];
-            let cw = UnicodeWidthStr::width(c.encode_utf8(&mut buf));
+            let cw = UnicodeWidthChar::width(c).unwrap_or(1);
             if w + cw > width {
                 break;
             }
@@ -286,8 +288,8 @@ fn marquee_slice(s: &str, offset: usize, max_width: usize) -> String {
     let mut col_table: Vec<(usize, char, usize)> = Vec::with_capacity(chars.len());
     let mut acc = 0usize;
     for &ch in &chars {
-        let mut buf = [0u8; 4];
-        let w = UnicodeWidthStr::width(ch.encode_utf8(&mut buf));
+        // UnicodeWidthChar::width は encode_utf8 バッファ不要。unwrap_or(1) で不可視文字も最低 1 列扱い
+        let w = UnicodeWidthChar::width(ch).unwrap_or(1).max(1);
         col_table.push((acc, ch, w));
         acc += w;
     }
@@ -316,12 +318,21 @@ fn marquee_slice(s: &str, offset: usize, max_width: usize) -> String {
                 .find(|(_, (c_start, _, cw))| c_start + cw > pos)
                 .map(|(i, (_, _, cw))| (i, *cw))
                 .unwrap_or((0, 1));
-            if out_width + w > max_width {
-                break;
+            let c_start = col_table[ci].0;
+            if pos > c_start {
+                // 全角文字の中間列から開始（例: 幅2の文字の2列目に offset が着地）
+                // → 空白 1 列を出力して次の文字の先頭へ進める
+                result.push(' ');
+                out_width += 1;
+                col = c_start + w;
+            } else {
+                if out_width + w > max_width {
+                    break;
+                }
+                result.push(col_table[ci].1);
+                out_width += w;
+                col += w;
             }
-            result.push(col_table[ci].1);
-            out_width += w;
-            col += w;
         }
     }
 
@@ -531,6 +542,48 @@ mod tests {
         let result = format_queue_badge(&[2, 4, 6]);
         assert_eq!(UnicodeWidthStr::width(result.as_str()), BADGE_WIDTH);
         assert!(result.starts_with("[2+2]"));
+    }
+
+    #[test]
+    fn marquee_ascii_scrolls_one_col_per_offset() {
+        // "ABC"(3列) + 2列ギャップ = loop_disp 5
+        // offset=0 → pos 0,1,2 = "ABC"
+        // offset=1 → pos 1,2,3(gap) = "BC "
+        // offset=2 → pos 2,3(gap),4(gap) = "C  "
+        // offset=3 → pos 3(gap),4(gap),0 = "  A"（ギャップ2列 + 折り返しA）
+        // offset=5 = offset=0 = "ABC"（ループ）
+        assert_eq!(marquee_slice("ABC", 0, 3), "ABC");
+        assert_eq!(marquee_slice("ABC", 1, 3), "BC ");
+        assert_eq!(marquee_slice("ABC", 2, 3), "C  ");
+        assert_eq!(marquee_slice("ABC", 3, 3), "  A");
+        assert_eq!(marquee_slice("ABC", 5, 3), "ABC");
+    }
+
+    #[test]
+    fn marquee_cjk_mid_column_becomes_space() {
+        // "あ"（幅2）+ 2列ギャップ = loop 4
+        // offset=0: 'あ'(2列) で max_width=2 を満たす → "あ"
+        // offset=1: 'あ' の中間列 → 空白 1 列補完 + ギャップ 1 列 → "  "
+        assert_eq!(marquee_slice("あ", 0, 2), "あ");
+        assert_eq!(marquee_slice("あ", 1, 2), "  ");
+        // offset=2,3: ギャップ → "  "
+        assert_eq!(marquee_slice("あ", 2, 2), "  ");
+        // offset=4: ループして再び "あ"
+        assert_eq!(marquee_slice("あ", 4, 2), "あ");
+    }
+
+    #[test]
+    fn marquee_always_max_width() {
+        for s in ["Hello", "あいう", "Mix混合テスト"] {
+            for offset in 0..30 {
+                let result = marquee_slice(s, offset, 8);
+                assert_eq!(
+                    UnicodeWidthStr::width(result.as_str()),
+                    8,
+                    "s={s:?} offset={offset}"
+                );
+            }
+        }
     }
 
     #[test]
