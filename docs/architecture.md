@@ -101,13 +101,14 @@ ui::tui::run()
   │     └── drop() → disable_raw_mode() + LeaveAlternateScreen + cursor::Show
   ├── Terminal::new()             ratatui ターミナル初期化
   └── event_loop()
-        ├── marquee_offset / marquee_tick  マーキースクロール状態（ローカル変数）
-        ├── queue_badge_map / queue_dirty  バッジキャッシュ（キュー変更時のみ再計算）
+        ├── marquee_offset / marquee_tick    マーキースクロール状態（ローカル変数）
+        ├── playlist_badge_map / playlist_dirty  バッジキャッシュ（playlist 変更時のみ再計算）
         ├── ui_mode / picker_entries / picker_selected  ソース選択オーバーレイの状態
+        ├── name_input: String               プレイリスト名入力バッファ（NameInput モード時）
         ├── 各フレーム先頭で:
         │     ├── tick_timeouts()  info_msg 3秒 / last_error 5秒 を過ぎたら自動クリア
-        │     └── queue_dirty == true なら queue_badge_map を再計算してフラグをリセット
-        ├── terminal.draw(|f| draw(f, ..., &queue_badge_map, ui_mode, picker_entries, picker_selected))
+        │     └── playlist_dirty == true なら playlist_badge_map を再計算してフラグをリセット
+        ├── terminal.draw(|f| draw(f, ..., &playlist_badge_map, &picker))
         └── event::poll(200ms)    キーイベント待機
               ├── match ui_mode
               │     ├── UiMode::Normal
@@ -118,34 +119,45 @@ ui::tui::run()
               │     │     ├── Space  → PlayerState::Stopped のときは無視
               │     │     │           Player::toggle_pause() → true → set_paused() / false → set_resumed()
               │     │     ├── ↑/↓   → AppState::next/prev()
-              │     │     ├── a      → enqueue_selected() + queue_dirty = true → set_info() でキュー件数（3秒）
-              │     │     ├── c      → clear_queue() + queue_dirty = true → set_info() で "Queue cleared"（3秒）
+              │     │     ├── a      → playlist_add_selected() → true: playlist_dirty + set_info("Added PL:N")
+              │     │     │                                     → false: set_info("Already in playlist")
+              │     │     ├── c      → clear_playlist() + playlist_dirty = true → set_info("Playlist cleared")
               │     │     ├── r      → cycle_repeat() → set_info() でモード表示（3秒）
-              │     │     ├── s      → save_playlist() → set_info() で保存先パス（3秒）/ set_error()（5秒）
+              │     │     ├── s      → playlist_is_empty() → true: set_error()
+              │     │     │           → false: name_input.clear() + ui_mode = NameInput
               │     │     ├── o      → build_source_entries() → ui_mode = SourcePicker
               │     │     └── q      → Player::stop() → break
-              │     └── UiMode::SourcePicker
-              │           ├── ↑/↓   → picker_selected を移動
-              │           ├── Enter  → load_source() → replace_tracks() + set_info() → ui_mode = Normal
-              │           ├── Esc    → ui_mode = Normal（変更なし）
-              │           └── その他 → 無視（Normal キーを誤処理しない）
+              │     ├── UiMode::SourcePicker
+              │     │     ├── ↑/↓   → picker_selected を移動
+              │     │     ├── Enter  → load_source() → replace_tracks() + set_info("Source loaded (playlist cleared)") → ui_mode = Normal
+              │     │     ├── d      → Playlist エントリ: std::fs::remove_file() → set_info("Deleted 'name'") + picker_entries 再構築
+              │     │     │           Directory エントリ: set_error("Cannot delete directory entry")
+              │     │     ├── Esc    → ui_mode = Normal（変更なし）
+              │     │     └── その他 → 無視
+              │     └── UiMode::NameInput
+              │           ├── 印字可能文字（/ \ : * ? " < > | 以外）→ name_input に追加（最大200文字）
+              │           ├── Backspace → name_input.pop()
+              │           ├── Enter  → name_input が空: set_error() / 空でない: save_playlist() → ui_mode = Normal
+              │           └── Esc    → ui_mode = Normal（保存しない）
               ├── 選択変更検知 → marquee_offset / tick リセット
               ├── 5フレームごと → marquee_offset += 1
               └── is_playback_settled() && rodio::Sink::empty()（再生バッファ空 = トラック完了）
                     ├── ※ is_playback_settled(): load_and_play 直後 500ms は is_empty() 誤検知を防ぐ
                     ├── clear_messages()
-                    ├── advance() == true → queue_dirty = true + play_current() + marquee リセット
+                    ├── advance() == true → play_current() + marquee リセット
                     └── advance() == false → set_stopped()
 ```
 
 描画は `draw()` 関数で 3 ペインに分割:
 
-- **トラックリスト** (上部 `Constraint::Min(3)`): `List` ウィジェット + `Scrollbar`。選択行ハイライト。長いタイトル・アーティスト名はマーキースクロール。各行末尾にキュー位置バッジ（後述）を表示。
-  - 各行の配色: 曲名 `Color::Green`、アーティスト `Color::Cyan`、時間 `Color::DarkGray`、キューバッジ `Color::Magenta`
+- **トラックリスト** (上部 `Constraint::Min(3)`): `List` ウィジェット + `Scrollbar`。選択行ハイライト。長いタイトル・アーティスト名はマーキースクロール。各行末尾にプレイリスト位置バッジ（後述）を表示。
+  - 各行の配色: 曲名 `Color::Green`、アーティスト `Color::Cyan`、時間 `Color::DarkGray`、バッジ `Color::Magenta`
+  - タイトルバー: プレイリストが空なら `" crabplay "`、曲が入っていれば `" crabplay  [PL: N] "`
   - タイトル列・アーティスト列の幅は固定値ではなく、`chunks[0].width` からターミナル幅を取得して動的に計算（詳細は後述）
 - **Now Playing** (中段 `Constraint::Length(3)`): 再生状態・曲名・アーティスト・経過時間 / 合計時間。`info_msg` があれば緑色、`last_error` があれば赤色で優先表示。
 - **キーバインド** (下段 `Constraint::Length(3)`): 現在の `repeat` モードをリアルタイム表示する動的文字列。端末幅が狭くて文字列が収まらない場合はマーキースクロール。配色 `Color::LightCyan`。
-- **ソース選択オーバーレイ** (`UiMode::SourcePicker` 時のみ): `o` キーで開く中央ポップアップ。`centered_rect(70%, 60%)` で算出した領域を `Clear` でクリアしてから `draw_source_picker()` で描画。先頭にディレクトリエントリ、以降に保存済みプレイリスト（mtime 降順・全件）を `List` で表示。ボーダー `Color::Yellow`、選択行 `bg(DarkGray) + BOLD`。
+- **ソース選択オーバーレイ** (`UiMode::SourcePicker` 時のみ): `o` キーで開く中央ポップアップ。`centered_rect(70%, 60%)` で算出した領域を `Clear` でクリアしてから `draw_source_picker()` で描画。先頭にディレクトリエントリ、以降に保存済みプレイリスト（mtime 降順・全件）を `List` で表示。ボーダー `Color::Yellow`、選択行 `bg(DarkGray) + BOLD`。`d` キーで `[PL]` エントリを削除できる。
+- **名前入力オーバーレイ** (`UiMode::NameInput` 時のみ): `s` キーで開く小型ポップアップ。`centered_rect(60%, 20%)` の領域にテキスト入力フィールドを表示。ボーダー `Color::Cyan`。Enter で保存、Esc でキャンセル。
 
 ### マーキースクロール実装
 
@@ -193,13 +205,13 @@ pub struct AppState {
     error_since: Option<Instant>,    // last_error の表示開始時刻（5秒タイムアウト用）
     pub info_msg: Option<String>,
     info_since: Option<Instant>,     // info_msg の表示開始時刻（3秒タイムアウト用）
-    queue: VecDeque<usize>,          // 非公開、アクセサ経由で操作
+    playlist: Vec<usize>,            // 非公開、アクセサ経由で操作。再生で消費されない
     pub repeat: RepeatMode,
     playback_started_at: Option<Instant>, // is_empty() 誤検知防止の再生開始時刻
 }
 ```
 
-`player_state` / `queue` は直接書き換え不可。以下のメソッドで操作する:
+`player_state` / `playlist` は直接書き換え不可。以下のメソッドで操作する:
 
 | メソッド | 役割 |
 |---------|------|
@@ -212,60 +224,52 @@ pub struct AppState {
 | `tick_timeouts()` | `error_since` 5秒・`info_since` 3秒を過ぎていれば各メッセージを自動クリア。イベントループ先頭で毎フレーム呼ぶ |
 | `clear_messages()` | `last_error` / `error_since` / `info_msg` / `info_since` を全クリア |
 | `player_state()` | `PlayerState`（Copy）を値で返す。`&PlayerState` ではないため呼び出し側で `*` デリファレンス不要 |
-| `replace_tracks(tracks)` | ソース切り替え時にトラック一覧と全再生状態をリセット。`player.stop()` は呼び出し側の責務。このメソッド後に `set_info()` を呼ぶと通知メッセージを表示できる |
-| `enqueue_selected()` / `clear_queue()` | キュー操作 |
-| `queue_len()` / `queue_is_empty()` / `queue_paths()` | キュー参照（読み取り専用） |
-| `queue_positions_for(track_index)` | 指定インデックスがキューの何番目にあるかを `Vec<usize>`（1始まり）で返す。最大3件に制限 |
-| `queue_badge_map()` | トラックインデックス → キュー内位置リストの `HashMap<usize, Vec<usize>>` を O(Q) で構築 |
+| `replace_tracks(tracks)` | ソース切り替え時にトラック一覧と全再生状態をリセット。`playlist` もクリア。`player.stop()` は呼び出し側の責務。このメソッド後に `set_info()` を呼ぶと通知メッセージを表示できる |
+| `playlist_add_selected()` | 選択中トラックを `playlist` に追加。重複はスキップ。**追加されたなら `true`、既存なら `false` を返す**（TUI 側で "Already in playlist" を表示するために使用） |
+| `clear_playlist()` | `playlist` を全クリア |
+| `playlist_len()` / `playlist_is_empty()` / `playlist_paths()` | プレイリスト参照（読み取り専用） |
+| `playlist_badge_map()` | トラックインデックス → プレイリスト内位置リストの `HashMap<usize, Vec<usize>>` を O(P) で構築 |
 
 `set_playing()` と `set_resumed()` を分けることで、ポーズ中にカーソルを別トラックへ移動してもポーズ解除時に ▶ マーカーがずれない。
 
-### キューと RepeatMode
+### RepeatMode と advance()
 
 ```
-advance() の優先順位:
+advance() の動作:
   1. RepeatMode::One  → playing_index のトラックをリピート。selected を playing_index に戻す
-                        ※ 再生中にカーソルが移動しても元のトラックに戻る。キューは消費しない
+                        ※ 再生中にカーソルが移動しても元のトラックに戻る
                         ※ playing_index が None（停止中）の場合は false を返す
-  2. queue に項目あり → pop_front() した index を selected にセット
-  3. RepeatMode::All  → (playing_index + 1) % tracks.len()
-                        ※ selected ではなく playing_index を起点にするため、キュー消費後も
-                          プレイリスト全体の論理的な「次」から再開できる
-  4. RepeatMode::Off  → selected + 1（末尾なら false を返して停止）
+  2. RepeatMode::All  → (playing_index + 1) % tracks.len()
+                        ※ selected ではなく playing_index を起点にするため、
+                          ブラウズ中でもプレイリスト全体の論理的な「次」から再開できる
+  3. RepeatMode::Off  → selected + 1（末尾なら false を返して停止）
 ```
 
-RepeatMode::One を最優先にすることで、1曲リピート中にキューへ追加した曲が割り込まない。  
-RepeatMode::All の起点を `playing_index` にすることで、キューで途中のトラックを再生した後も  
-プレイリスト順が維持される。  
+`playlist`（保存用リスト）は `advance()` で消費されない。再生順制御は RepeatMode のみで行う。  
 メッセージのクリアは `advance()` ではなく呼び出し側（TUI の auto-advance ブロック）の責務とする。
 
-### キュー位置バッジ
+### プレイリスト位置バッジ
 
-トラックリストの各行末尾に `BADGE_WIDTH = 6` 文字固定のバッジを表示する（Color::Magenta）。
+トラックリストの各行末尾に `BADGE_WIDTH = 6` 文字固定のバッジを表示する（Color::Magenta）。  
+バッジはプレイリスト（`playlist: Vec<usize>`）内の位置番号を示す。
 
 ```
-  Bohemian Rhapsody    Queen     5:54        ← キューなし（空白 6 文字）
-▶ Hotel California     Eagles    6:30  [1]   ← キュー 1 番目
-  Stairway to Heaven   Led Zep   8:02  [2]   ← キュー 2 番目
-  Hotel California     Eagles    6:30  [1,3] ← 1 番目と 3 番目に重複登録
-  Comfortably Numb     Pink F    6:21  [2+2] ← 2 番目 + 残り 2 件
+  Bohemian Rhapsody    Queen     5:54        ← プレイリスト未登録（空白 6 文字）
+▶ Hotel California     Eagles    6:30  [1]   ← プレイリスト 1 番目
+  Stairway to Heaven   Led Zep   8:02  [2]   ← プレイリスト 2 番目
 ```
 
 `format_queue_badge(positions: &[usize]) -> String` の変換規則:
 
 | 状態 | 表示例 |
 |------|--------|
-| キューなし | `"      "` (空白 6 文字) |
+| 未登録 | `"      "` (空白 6 文字) |
 | 1 箇所 | `"[1]   "` |
-| 2 箇所かつ両方 1 桁 | `"[1,3] "` (`[x,y]` は 5 文字。両方 1 桁のときのみ `BADGE_WIDTH` に収まる) |
-| それ以外（3 箇所以上 or 2 桁以上） | `"[1+2] "` (先頭位置 + 残り件数) |
-
-文字列生成後に `.chars().take(BADGE_WIDTH)` で切り詰め、`format!("{:<6}", ...)` でパディングする。これにより `p1` や残り件数が 2 桁以上になっても `BADGE_WIDTH` を超えない。
-
-幅を固定することで、ターミナル幅が狭い場合でも末尾から自然に切り詰められ、タイトル・アーティストなどの主要情報が保護される。
+| 2 箇所かつ両方 1 桁 | `"[1,3] "` |
+| それ以外 | `"[1+2] "` (先頭位置 + 残り件数) |
 
 **パフォーマンス設計:**  
-`draw()` はフレームごとに `queue_badge_map: &HashMap<usize, Vec<usize>>` を受け取る。`event_loop` は `queue_dirty` フラグでキュー変更を検知し、`enqueue_selected` / `clear_queue` / `advance` 時のみ `queue_badge_map()` を再計算する。毎フレームの HashMap アロケートを廃止し、トラックリストループ内は `map.get(&i)` の O(1) 参照のみ行う。
+`draw()` はフレームごとに `playlist_badge_map: &HashMap<usize, Vec<usize>>` を受け取る。`event_loop` は `playlist_dirty` フラグでプレイリスト変更を検知し、`playlist_add_selected` / `clear_playlist` 時のみ `playlist_badge_map()` を再計算する。毎フレームの HashMap アロケートを廃止し、トラックリストループ内は `map.get(&i)` の O(1) 参照のみ行う。
 
 ### Playlist モジュール
 
@@ -277,7 +281,7 @@ pub struct Playlist {
 }
 ```
 
-- `save(&dir)` — ファイル名を ASCII 英数字・`-`・`_` のみにサニタイズして `dir/<name>.json` に保存。サニタイズ後が空文字になる場合はエラーを返す。TUI から呼ぶ際のファイル名は `playlist_<SEC>_<MS>.json`（サブ秒精度）で同一秒内の上書きを防止
+- `save(&dir)` — ファイル名を ASCII 英数字・`-`・`_` のみにサニタイズして `dir/<name>.json` に保存。サニタイズ後が空文字になる場合はエラーを返す
 - `load(&path)` — JSON ファイルから復元
 - `default_dir()` — `XDG_CONFIG_HOME` → `HOME/.config` → `.` の優先順で解決し、`crabplay/playlists/` を付加して返す
 

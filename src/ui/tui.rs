@@ -30,6 +30,7 @@ use crate::playlist::Playlist;
 enum UiMode {
     Normal,
     SourcePicker,
+    NameInput,
 }
 
 #[derive(Debug, Clone)]
@@ -47,11 +48,13 @@ impl SourceEntry {
     }
 }
 
-/// ソース選択オーバーレイの描画用状態。`draw()` の引数を減らすためにまとめる。
+/// オーバーレイの描画用状態。`draw()` の引数を減らすためにまとめる。
 struct PickerState<'a> {
     mode: UiMode,
     entries: &'a [SourceEntry],
     selected: usize,
+    /// NameInput モード時の入力バッファ
+    name_input: &'a str,
 }
 
 /// パニック時も含めてターミナルを必ず復元するガード型。
@@ -95,27 +98,30 @@ fn event_loop<B: ratatui::backend::Backend>(
     let mut marquee_offset: usize = 0;
     let mut last_selected = state.selected;
 
-    // キュー変更時のみ再計算するバッジキャッシュ
-    let mut queue_badge_map = state.queue_badge_map();
-    let mut queue_dirty = false;
+    // プレイリスト変更時のみ再計算するバッジキャッシュ
+    let mut playlist_badge_map = state.playlist_badge_map();
+    let mut playlist_dirty = false;
 
     // ソース選択オーバーレイの状態
     let mut ui_mode = UiMode::Normal;
     let mut picker_entries: Vec<SourceEntry> = Vec::new();
     let mut picker_selected: usize = 0;
+    // プレイリスト名入力バッファ
+    let mut name_input = String::new();
 
     loop {
         state.tick_timeouts();
 
-        if queue_dirty {
-            queue_badge_map = state.queue_badge_map();
-            queue_dirty = false;
+        if playlist_dirty {
+            playlist_badge_map = state.playlist_badge_map();
+            playlist_dirty = false;
         }
 
         let picker = PickerState {
             mode: ui_mode,
             entries: &picker_entries,
             selected: picker_selected,
+            name_input: &name_input,
         };
         terminal.draw(|f| {
             draw(
@@ -124,7 +130,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                 player,
                 &mut list_state,
                 marquee_offset,
-                &queue_badge_map,
+                &playlist_badge_map,
                 &picker,
             )
         })?;
@@ -175,26 +181,37 @@ fn event_loop<B: ratatui::backend::Backend>(
                             list_state.select(Some(state.selected));
                             play_current(state, player);
                         }
-                        // キューに選択中のトラックを追加
+                        // プレイリストに選択中のトラックを追加
                         KeyCode::Char('a') => {
-                            state.enqueue_selected();
-                            queue_dirty = true;
-                            state.set_info(format!("Queued: {} track(s)", state.queue_len()));
+                            if state.playlist_add_selected() {
+                                playlist_dirty = true;
+                                state.set_info(format!("Added  (PL:{})", state.playlist_len()));
+                            } else {
+                                state.set_info("Already in playlist".to_string());
+                            }
                         }
-                        // キューをクリア
+                        // プレイリストをクリア
                         KeyCode::Char('c') => {
-                            state.clear_queue();
-                            queue_dirty = true;
-                            state.set_info("Queue cleared".to_string());
+                            state.clear_playlist();
+                            playlist_dirty = true;
+                            state.set_info("Playlist cleared".to_string());
                         }
                         // リピートモードをサイクル
                         KeyCode::Char('r') => {
                             state.cycle_repeat();
                             state.set_info(format!("Repeat: {}", state.repeat.label()));
                         }
-                        // キュー（空の場合は全トラック）をプレイリストとして保存
+                        // プレイリスト名入力オーバーレイを開く
                         KeyCode::Char('s') => {
-                            save_playlist(state);
+                            if state.playlist_is_empty() {
+                                state.set_error(
+                                    "Playlist is empty. Add tracks with [a] before saving."
+                                        .to_string(),
+                                );
+                            } else {
+                                name_input.clear();
+                                ui_mode = UiMode::NameInput;
+                            }
                         }
                         // ソース選択オーバーレイを開く
                         KeyCode::Char('o') => {
@@ -220,7 +237,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                     KeyCode::Enter => {
                         if let Some(entry) = picker_entries.get(picker_selected).cloned() {
                             load_source(state, player, &entry);
-                            queue_dirty = true;
+                            playlist_dirty = true;
                             list_state.select(Some(0));
                             marquee_offset = 0;
                             marquee_tick = 0;
@@ -228,7 +245,49 @@ fn event_loop<B: ratatui::backend::Backend>(
                         }
                         ui_mode = UiMode::Normal;
                     }
+                    KeyCode::Char('d') => match picker_entries.get(picker_selected) {
+                        Some(SourceEntry::Playlist { path, name }) => {
+                            let name = name.clone();
+                            match std::fs::remove_file(path) {
+                                Ok(_) => {
+                                    state.set_info(format!("Deleted '{name}'"));
+                                    picker_entries = build_source_entries(&state.source_dir);
+                                    picker_selected =
+                                        picker_selected.min(picker_entries.len().saturating_sub(1));
+                                }
+                                Err(e) => {
+                                    state.set_error(format!("Delete failed: {e}"));
+                                }
+                            }
+                        }
+                        Some(SourceEntry::Directory(_)) => {
+                            state.set_error("Cannot delete directory entry".to_string());
+                        }
+                        None => {}
+                    },
                     _ => {} // Normal キーを誤処理しない
+                },
+                UiMode::NameInput => match key.code {
+                    KeyCode::Esc => {
+                        ui_mode = UiMode::Normal;
+                    }
+                    KeyCode::Enter => {
+                        if name_input.is_empty() {
+                            state.set_error("Name cannot be empty.".to_string());
+                        } else {
+                            save_playlist(state, &name_input);
+                        }
+                        ui_mode = UiMode::Normal;
+                    }
+                    KeyCode::Backspace => {
+                        name_input.pop();
+                    }
+                    KeyCode::Char(c)
+                        if !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') =>
+                    {
+                        name_input.push(c);
+                    }
+                    _ => {}
                 },
             }
         }
@@ -255,7 +314,7 @@ fn event_loop<B: ratatui::backend::Backend>(
         {
             state.clear_messages();
             if state.advance() {
-                queue_dirty = true;
+                playlist_dirty = false; // advance() は playlist を変更しない
                 list_state.select(Some(state.selected));
                 marquee_offset = 0;
                 marquee_tick = 0;
@@ -284,22 +343,11 @@ fn play_current(state: &mut AppState, player: &Player) {
     }
 }
 
-fn save_playlist(state: &mut AppState) {
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    // サブ秒精度（ミリ秒）を付加して同一秒内の上書きを防止
-    let name = format!("playlist_{}_{:03}", ts.as_secs(), ts.subsec_millis());
-
-    let paths = if state.queue_is_empty() {
-        state.tracks.iter().map(|t| t.path.clone()).collect()
-    } else {
-        state.queue_paths()
-    };
-
-    let playlist = Playlist::new(&name, paths);
+fn save_playlist(state: &mut AppState, name: &str) {
+    let paths = state.playlist_paths();
+    let playlist = Playlist::new(name, paths);
     match playlist.save(&Playlist::default_dir()) {
-        Ok(dest) => state.set_info(format!("Saved: {}", dest.display())),
+        Ok(_) => state.set_info(format!("Saved as '{name}'")),
         Err(e) => state.set_error(e.to_string()),
     }
 }
@@ -372,9 +420,12 @@ fn load_source(state: &mut AppState, player: &Player, entry: &SourceEntry) {
                 }
                 state.replace_tracks(tracks);
                 if skip > 0 {
-                    state.set_info(format!("Loaded ({} file(s) skipped)", skip));
+                    state.set_info(format!(
+                        "Loaded ({} file(s) skipped, playlist cleared)",
+                        skip
+                    ));
                 } else {
-                    state.set_info("Source loaded".to_string());
+                    state.set_info("Source loaded (playlist cleared)".to_string());
                 }
             }
         },
@@ -402,9 +453,12 @@ fn load_source(state: &mut AppState, player: &Player, entry: &SourceEntry) {
                 }
                 state.replace_tracks(tracks);
                 if skip > 0 {
-                    state.set_info(format!("Loaded ({} file(s) skipped)", skip));
+                    state.set_info(format!(
+                        "Loaded ({} file(s) skipped, playlist cleared)",
+                        skip
+                    ));
                 } else {
-                    state.set_info("Source loaded".to_string());
+                    state.set_info("Source loaded (playlist cleared)".to_string());
                 }
             }
         },
@@ -533,7 +587,7 @@ fn draw(
     player: &Player,
     list_state: &mut ListState,
     marquee_offset: usize,
-    queue_badge_map: &HashMap<usize, Vec<usize>>,
+    playlist_badge_map: &HashMap<usize, Vec<usize>>,
     picker: &PickerState,
 ) {
     // 3分割レイアウト: トラックリスト / 再生情報 / キーバインド
@@ -608,7 +662,7 @@ fn draw(
                     format!(
                         " {}",
                         format_queue_badge(
-                            queue_badge_map.get(&i).map(Vec::as_slice).unwrap_or(&[])
+                            playlist_badge_map.get(&i).map(Vec::as_slice).unwrap_or(&[])
                         )
                     ),
                     Style::default().fg(Color::Magenta),
@@ -618,11 +672,11 @@ fn draw(
         })
         .collect();
 
-    // キュー件数をタイトルに表示
-    let list_title = if state.queue_is_empty() {
+    // プレイリスト件数をタイトルに表示
+    let list_title = if state.playlist_is_empty() {
         " crabplay ".to_string()
     } else {
-        format!(" crabplay  [queue: {}] ", state.queue_len())
+        format!(" crabplay  [PL: {}] ", state.playlist_len())
     };
 
     let list = List::new(items)
@@ -687,7 +741,7 @@ fn draw(
     // キーバインドペイン（リピートモード表示付き）
     // テキストがターミナル幅を超える場合はマーキースクロール
     let keybinds_raw = format!(
-        " [↑↓] select  [Enter] play  [Space] pause  [n/p] move+play  [a] queue  [c] clear  [r] repeat:{}  [s] save playlist  [o] load playlist  [q] quit",
+        " [↑↓] select  [Enter] play  [Space] pause  [n/p] move+play  [a] add to playlist  [c] clear playlist  [r] repeat:{}  [s] save playlist  [o] open source  [q] quit",
         state.repeat.label()
     );
     let keybinds_inner_width = chunks[2].width.saturating_sub(2) as usize;
@@ -705,6 +759,10 @@ fn draw(
     // ソース選択オーバーレイ（SourcePicker モード時のみ）
     if picker.mode == UiMode::SourcePicker {
         draw_source_picker(f, picker.entries, picker.selected);
+    }
+    // プレイリスト名入力オーバーレイ（NameInput モード時のみ）
+    if picker.mode == UiMode::NameInput {
+        draw_name_input(f, picker.name_input);
     }
 }
 
@@ -749,7 +807,7 @@ fn draw_source_picker(f: &mut ratatui::Frame, entries: &[SourceEntry], selected:
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Open Source  [↑↓] move  [Enter] load  [Esc] cancel ")
+                .title(" Open Source  [↑↓] move  [Enter] load  [d] delete  [Esc] cancel ")
                 .border_style(Style::default().fg(Color::Yellow)),
         )
         .highlight_style(
@@ -759,6 +817,26 @@ fn draw_source_picker(f: &mut ratatui::Frame, entries: &[SourceEntry], selected:
         );
 
     f.render_stateful_widget(list, area, &mut picker_list_state);
+}
+
+/// プレイリスト名入力オーバーレイを描画する。
+fn draw_name_input(f: &mut ratatui::Frame, name_input: &str) {
+    use ratatui::widgets::Clear;
+
+    let area = centered_rect(60, 20, f.area());
+    f.render_widget(Clear, area);
+
+    let display = format!(" > {name_input}_");
+    let widget = Paragraph::new(display)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Save Playlist  [Enter] save  [Esc] cancel ")
+                .border_style(Style::default().fg(Color::Cyan)),
+        )
+        .style(Style::default().fg(Color::White));
+
+    f.render_widget(widget, area);
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::models::TrackInfo;
@@ -52,8 +52,8 @@ pub struct AppState {
     pub info_msg: Option<String>,
     /// info_msg の表示開始時刻（3秒後に自動クリア）。
     info_since: Option<std::time::Instant>,
-    /// 再生キュー（tracks のインデックス列）。外部からは queue_len() / enqueue_selected() / clear_queue() を使う。
-    queue: VecDeque<usize>,
+    /// プレイリスト（保存対象の曲リスト、tracks のインデックス列）。再生で消費されない。
+    playlist: Vec<usize>,
     /// リピートモード。
     pub repeat: RepeatMode,
     /// load_and_play 直後の is_empty() 誤検知を防ぐための再生開始時刻。
@@ -72,7 +72,7 @@ impl AppState {
             error_since: None,
             info_msg: None,
             info_since: None,
-            queue: VecDeque::new(),
+            playlist: Vec::new(),
             repeat: RepeatMode::Off,
             playback_started_at: None,
         }
@@ -137,7 +137,7 @@ impl AppState {
         self.playing_index = None;
         self.player_state = PlayerState::Stopped;
         self.playback_started_at = None;
-        self.queue.clear();
+        self.playlist.clear();
         self.last_error = None;
         self.error_since = None;
         self.info_msg = None;
@@ -152,53 +152,43 @@ impl AppState {
             .unwrap_or(true)
     }
 
-    /// 選択中のトラックをキューの末尾に追加する。
-    pub fn enqueue_selected(&mut self) {
-        self.queue.push_back(self.selected);
+    /// 選択中のトラックをプレイリストに追加する。
+    /// 追加された場合は true、既に存在する場合は false を返す。
+    pub fn playlist_add_selected(&mut self) -> bool {
+        if self.playlist.contains(&self.selected) {
+            return false;
+        }
+        self.playlist.push(self.selected);
+        true
     }
 
-    /// 再生キューをクリアする。
-    pub fn clear_queue(&mut self) {
-        self.queue.clear();
+    /// プレイリストをクリアする。
+    pub fn clear_playlist(&mut self) {
+        self.playlist.clear();
     }
 
-    /// 現在のキュー件数を返す。
-    pub fn queue_len(&self) -> usize {
-        self.queue.len()
+    pub fn playlist_len(&self) -> usize {
+        self.playlist.len()
     }
 
-    /// キューが空かどうかを返す。
-    pub fn queue_is_empty(&self) -> bool {
-        self.queue.is_empty()
+    pub fn playlist_is_empty(&self) -> bool {
+        self.playlist.is_empty()
     }
 
-    /// キューに積まれているトラックのパス一覧を返す。
-    /// キューが空の場合は空の Vec を返す（全トラックへのフォールバックは呼び出し側で行う）。
-    pub fn queue_paths(&self) -> Vec<std::path::PathBuf> {
-        self.queue
+    /// プレイリスト内トラックのパス一覧を返す。
+    pub fn playlist_paths(&self) -> Vec<std::path::PathBuf> {
+        self.playlist
             .iter()
             .filter_map(|&i| self.tracks.get(i))
             .map(|t| t.path.clone())
             .collect()
     }
 
-    /// 指定したトラックインデックスが queue の何番目（1始まり）に存在するか返す。
-    /// 表示用途のため最大3件に制限（format_queue_badge が使うのは先頭2件 + 残り件数のみ）。
-    pub fn queue_positions_for(&self, track_index: usize) -> Vec<usize> {
-        self.queue
-            .iter()
-            .enumerate()
-            .filter(|&(_, &idx)| idx == track_index)
-            .map(|(pos, _)| pos + 1)
-            .take(3)
-            .collect()
-    }
-
-    /// トラックインデックス → キュー内位置リスト（1始まり）の HashMap を返す。
-    /// draw() でフレームごとに O(N×Q) の走査を避けるため、キュー全体を一度だけ走査して構築する。
-    pub fn queue_badge_map(&self) -> HashMap<usize, Vec<usize>> {
+    /// トラックインデックス → プレイリスト内位置リスト（1始まり）の HashMap を返す。
+    /// draw() でフレームごとに O(N×P) の走査を避けるため、一度だけ走査して構築する。
+    pub fn playlist_badge_map(&self) -> HashMap<usize, Vec<usize>> {
         let mut map: HashMap<usize, Vec<usize>> = HashMap::new();
-        for (pos, &idx) in self.queue.iter().enumerate() {
+        for (pos, &idx) in self.playlist.iter().enumerate() {
             map.entry(idx).or_default().push(pos + 1);
         }
         map
@@ -249,48 +239,35 @@ impl AppState {
         self.info_since = None;
     }
 
-    /// 現在のトラック終了後に次へ進む。
+    /// 現在のトラック終了後に次へ進む。RepeatMode のみで制御。
     ///
-    /// 優先順位:
-    /// 1. `RepeatMode::One` — playing_index のトラックをリピート（キューは消費しない）。
-    ///    カーソル（selected）が移動していても playing_index に戻す。
-    /// 2. キューに項目あり — pop_front() した index を selected にセット
-    /// 3. `RepeatMode::All` — (selected + 1) % len でループ
-    /// 4. `RepeatMode::Off` — 線形に次へ（末尾なら false を返す）
+    /// 1. `RepeatMode::One` — playing_index のトラックをリピート
+    /// 2. `RepeatMode::All` — (playing_index + 1) % len でループ
+    /// 3. `RepeatMode::Off` — 線形に次へ（末尾なら false を返す）
     ///
     /// 次のトラックが存在する場合は `selected` を更新して `true` を返す。
-    /// メッセージのクリアは呼び出し側の責務とする。
     pub fn advance(&mut self) -> bool {
         if self.repeat == RepeatMode::One {
-            // ループ対象は「現在再生中のトラック」。カーソルがずれても元のトラックに戻す。
-            // playing_index が None（停止中）の場合はリピート不可として false を返す。
             if let Some(idx) = self.playing_index {
                 self.selected = idx;
                 return true;
             }
             return false;
         }
-        if let Some(idx) = self.queue.pop_front() {
-            self.selected = idx;
-            return true;
-        }
         if self.repeat == RepeatMode::All {
             if self.tracks.is_empty() {
                 return false;
             }
-            // playing_index を起点にすることで、キュー消費後も
-            // プレイリスト全体の論理的な「次」から再開できる。
             let base = self.playing_index.unwrap_or(self.selected);
             self.selected = (base + 1) % self.tracks.len();
+            return true;
+        }
+        // RepeatMode::Off
+        if self.selected + 1 < self.tracks.len() {
+            self.selected += 1;
             true
         } else {
-            // RepeatMode::Off
-            if self.selected + 1 < self.tracks.len() {
-                self.selected += 1;
-                true
-            } else {
-                false
-            }
+            false
         }
     }
 }
@@ -318,8 +295,8 @@ mod tests {
     fn replace_tracks_resets_all_state() {
         let mut state = make_state(3);
         state.selected = 2;
-        state.set_playing(); // playing_index = Some(2)
-        state.enqueue_selected();
+        state.set_playing();
+        state.playlist_add_selected();
         state.set_error("err".to_string());
         let new_tracks = vec![TrackInfo {
             path: PathBuf::from("/new.mp3"),
@@ -332,40 +309,43 @@ mod tests {
         assert_eq!(state.tracks.len(), 1);
         assert_eq!(state.selected, 0);
         assert_eq!(state.playing_index(), None);
-        assert!(state.queue_is_empty());
+        assert!(state.playlist_is_empty());
         assert!(state.last_error.is_none());
         assert!(state.info_msg.is_none());
     }
 
     #[test]
-    fn queue_positions_empty_queue() {
-        let state = make_state(3);
-        assert_eq!(state.queue_positions_for(0), Vec::<usize>::new());
+    fn replace_tracks_clears_playlist() {
+        let mut state = make_state(3);
+        state.selected = 1;
+        state.playlist_add_selected();
+        assert_eq!(state.playlist_len(), 1);
+        state.replace_tracks(vec![]);
+        assert!(state.playlist_is_empty());
     }
 
     #[test]
-    fn queue_positions_single() {
+    fn playlist_add_dedup() {
         let mut state = make_state(3);
         state.selected = 0;
-        state.enqueue_selected();
-        assert_eq!(state.queue_positions_for(0), vec![1]);
-        assert_eq!(state.queue_positions_for(1), Vec::<usize>::new());
+        assert!(state.playlist_add_selected());
+        assert!(!state.playlist_add_selected()); // 重複はスキップ
+        assert_eq!(state.playlist_len(), 1);
     }
 
     #[test]
-    fn queue_positions_duplicate() {
+    fn playlist_not_consumed_by_advance() {
         let mut state = make_state(3);
         state.selected = 0;
-        state.enqueue_selected();
-        state.enqueue_selected();
-        state.enqueue_selected();
-        assert_eq!(state.queue_positions_for(0), vec![1, 2, 3]);
+        state.playlist_add_selected();
+        state.set_playing();
+        state.advance();
+        assert_eq!(state.playlist_len(), 1);
     }
 
     #[test]
     fn is_playback_settled_when_never_started() {
         let state = make_state(1);
-        // playback_started_at が None → settled (unwrap_or(true))
         assert!(state.is_playback_settled());
     }
 
@@ -373,7 +353,6 @@ mod tests {
     fn advance_repeat_one_returns_false_when_not_playing() {
         let mut state = make_state(3);
         state.repeat = RepeatMode::One;
-        // playing_index = None → advance() は false
         assert!(!state.advance());
     }
 
@@ -381,10 +360,10 @@ mod tests {
     fn advance_repeat_all_loops_around() {
         let mut state = make_state(3);
         state.selected = 2;
-        state.set_playing(); // playing_index = Some(2)
+        state.set_playing();
         state.repeat = RepeatMode::All;
         assert!(state.advance());
-        assert_eq!(state.selected, 0); // 末尾から先頭へ
+        assert_eq!(state.selected, 0);
     }
 
     #[test]
@@ -398,45 +377,24 @@ mod tests {
     fn advance_repeat_all_uses_playing_index_as_base() {
         let mut state = make_state(5);
         state.selected = 0;
-        state.set_playing(); // playing_index = Some(0)
-        // カーソルを 3 に移動（再生中にブラウジング）
+        state.set_playing();
         state.selected = 3;
         state.repeat = RepeatMode::All;
-        // playing_index(0) + 1 = 1 になるはず（selected(3) + 1 = 4 ではない）
         assert!(state.advance());
         assert_eq!(state.selected, 1);
     }
 
     #[test]
-    fn advance_repeat_one_ignores_queue_and_resets_cursor() {
+    fn advance_repeat_one_resets_cursor_to_playing_index() {
         let mut state = make_state(3);
         state.selected = 0;
-        state.set_playing(); // playing_index = Some(0)
-        // カーソルを動かしキューに積む
-        state.selected = 1;
-        state.enqueue_selected(); // queue: [1]
-        state.selected = 2; // カーソルをさらに移動
+        state.set_playing();
+        state.selected = 2;
         state.repeat = RepeatMode::One;
-        // advance() はキューを無視し、selected を playing_index に戻す
         assert!(state.advance());
         assert_eq!(
             state.selected, 0,
             "RepeatMode::One は playing_index のトラックに戻す"
         );
-        assert_eq!(state.queue_len(), 1, "キューは消費されない");
-    }
-
-    #[test]
-    fn queue_positions_mixed() {
-        let mut state = make_state(3);
-        state.selected = 0;
-        state.enqueue_selected(); // queue: [0]
-        state.selected = 1;
-        state.enqueue_selected(); // queue: [0, 1]
-        state.selected = 0;
-        state.enqueue_selected(); // queue: [0, 1, 0]
-        assert_eq!(state.queue_positions_for(0), vec![1, 3]);
-        assert_eq!(state.queue_positions_for(1), vec![2]);
-        assert_eq!(state.queue_positions_for(2), Vec::<usize>::new());
     }
 }

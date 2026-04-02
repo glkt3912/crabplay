@@ -6,10 +6,10 @@
       "id": "architecture",
       "path": "docs/architecture.md",
       "title": "アーキテクチャ",
-      "description": "モジュール依存関係、データフロー、エラーハンドリング設計、TUI構造、AppState設計（PlayerState Copy/player_state()値返し/set_resumed playback_started_at非更新/advance RepeatMode修正含む）、Spaceキー Stopped ガード、play_current clear_messages統一、マーキースクロール（CJK 中間列空白補完・UnicodeWidthChar）、pad_display()、Playlistモジュール（サブ秒ファイル名）、タイトル列・アーティスト列の動的幅（ターミナル幅ベース）、配色（曲名Green/アーティストCyan/キーバインドLightCyan）、ソース選択オーバーレイ（UiMode/SourceEntry/replace_tracks）",
+      "description": "モジュール依存関係、データフロー、エラーハンドリング設計、TUI構造、AppState設計（playlist一本化・queue廃止・playlist_add_selected bool返し・advance RepeatModeのみ）、NameInput UiMode（プレイリスト名入力）、SourcePicker d キー削除、プレイリスト位置バッジ（playlist_badge_map/playlist_dirty）、タイトルバーPL:N表示、マーキースクロール（CJK中間列）、動的列幅、配色、ソース選択オーバーレイ（replace_tracks/playlist cleared通知）",
       "tags": ["設計", "アーキテクチャ", "モジュール", "TUI", "オーディオ", "プレイリスト"],
-      "topics": ["モジュール構成", "エラーハンドリング", "データフロー", "再生エンジン", "TUIアーキテクチャ", "AppState", "PlayerState", "TerminalGuard", "マーキー", "CJKパディング", "CJK中間列", "pad_display", "UnicodeWidthChar", "自動次曲", "キュー", "queue_dirty", "キューバッジ", "queue_badge_map", "RepeatMode", "is_playback_settled", "set_error", "tick_timeouts", "Playlist", "XDG", "set_resumed", "advance優先順位", "動的列幅", "配色", "UiMode", "SourceEntry", "SourcePicker", "replace_tracks", "source_dir", "centered_rect", "draw_source_picker"],
-      "updatedAt": "2026-04-02"
+      "topics": ["モジュール構成", "エラーハンドリング", "データフロー", "再生エンジン", "TUIアーキテクチャ", "AppState", "PlayerState", "TerminalGuard", "マーキー", "CJKパディング", "CJK中間列", "pad_display", "UnicodeWidthChar", "自動次曲", "playlist", "playlist_dirty", "プレイリストバッジ", "playlist_badge_map", "playlist_add_selected", "RepeatMode", "is_playback_settled", "set_error", "tick_timeouts", "Playlist", "XDG", "set_resumed", "advance", "動的列幅", "配色", "UiMode", "NameInput", "SourceEntry", "SourcePicker", "replace_tracks", "source_dir", "centered_rect", "draw_source_picker", "draw_name_input"],
+      "updatedAt": "2026-04-03"
     },
     {
       "id": "crate-guide",
