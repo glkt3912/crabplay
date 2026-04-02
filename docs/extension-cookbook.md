@@ -58,6 +58,9 @@ let gauge = Gauge::default()
 
 ## 3. シャッフル再生を追加する
 
+> **注意**: キュー (`queue: VecDeque<usize>`) と RepeatMode はすでに実装済み。
+> シャッフルは `queue` にランダム順でインデックスを詰めることで実現できる。
+
 **変更ファイル**: `src/app.rs`, `Cargo.toml`
 
 ```toml
@@ -69,28 +72,50 @@ rand = "0.9"
 // src/app.rs
 use rand::seq::SliceRandom;
 
-pub struct AppState {
-    pub tracks: Vec<TrackInfo>,
-    pub order: Vec<usize>,    // 再生順序
-    pub queue_pos: usize,
-    pub shuffle: bool,
-    player_state: PlayerState,
-    pub last_error: Option<String>,
-}
-
 impl AppState {
-    pub fn toggle_shuffle(&mut self) {
-        self.shuffle = !self.shuffle;
-        if self.shuffle {
-            self.order.shuffle(&mut rand::rng());
-        } else {
-            self.order = (0..self.tracks.len()).collect();
-        }
+    pub fn shuffle_into_queue(&mut self) {
+        let mut indices: Vec<usize> = (0..self.tracks.len()).collect();
+        indices.shuffle(&mut rand::rng());
+        self.queue = indices.into();
     }
+}
+```
 
-    pub fn current(&self) -> Option<&TrackInfo> {
-        self.order.get(self.queue_pos).and_then(|&i| self.tracks.get(i))
-    }
+TUI のキーバインドに追加:
+
+```rust
+// src/ui/tui.rs
+KeyCode::Char('S') => {
+    state.shuffle_into_queue();
+    state.info_msg = Some(format!("Shuffled {} tracks into queue", state.queue.len()));
+}
+```
+
+---
+
+## 3b. 保存済みプレイリストを CLI から読み込む
+
+**変更ファイル**: `src/cli.rs`, `src/main.rs`
+
+```rust
+// src/cli.rs
+#[derive(Parser)]
+pub struct Args {
+    // ...既存フィールド...
+    /// プレイリスト JSON ファイルを指定して起動
+    #[arg(long)]
+    pub playlist: Option<PathBuf>,
+}
+```
+
+```rust
+// src/main.rs
+if let Some(pl_path) = &args.playlist {
+    let pl = crabplay::playlist::Playlist::load(pl_path)?;
+    // pl.paths をもとにメタデータを読み込んで tracks を構築
+    tracks = pl.paths.iter()
+        .filter_map(|p| library::metadata::read_metadata(p).ok())
+        .collect();
 }
 ```
 
