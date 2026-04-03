@@ -80,10 +80,9 @@ TUI の動作は自動テストが難しいため、手動で確認する:
 
 PR・main push 時に macOS × stable Rust で自動実行:
 
-1. `cargo fmt --check` — フォーマット確認
-2. `cargo clippy -- -D warnings` — lint
-3. `cargo build --locked` — ビルド
-4. `cargo test` — テスト
+1. `cargo clippy -- -D warnings` — lint
+2. `cargo build --locked` — ビルド
+3. `cargo test` — テスト
 
 ### 自動フォーマット (`fmt.yml`)
 
