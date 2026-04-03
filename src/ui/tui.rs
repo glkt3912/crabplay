@@ -223,12 +223,18 @@ fn event_loop<B: ratatui::backend::Backend>(
                         KeyCode::Char('+') | KeyCode::Char('=') => {
                             state.volume_up();
                             player.set_volume(state.volume);
-                            state.set_info(format!("Volume: {}%", (state.volume * 100.0).round() as u32));
+                            state.set_info(format!(
+                                "Volume: {}%",
+                                (state.volume * 100.0).round() as u32
+                            ));
                         }
                         KeyCode::Char('-') => {
                             state.volume_down();
                             player.set_volume(state.volume);
-                            state.set_info(format!("Volume: {}%", (state.volume * 100.0).round() as u32));
+                            state.set_info(format!(
+                                "Volume: {}%",
+                                (state.volume * 100.0).round() as u32
+                            ));
                         }
                         _ => {}
                     }
