@@ -219,6 +219,17 @@ fn event_loop<B: ratatui::backend::Backend>(
                             picker_selected = 0;
                             ui_mode = UiMode::SourcePicker;
                         }
+                        // 音量調整
+                        KeyCode::Char('+') | KeyCode::Char('=') => {
+                            state.volume_up();
+                            player.set_volume(state.volume);
+                            state.set_info(format!("Volume: {}%", (state.volume * 100.0).round() as u32));
+                        }
+                        KeyCode::Char('-') => {
+                            state.volume_down();
+                            player.set_volume(state.volume);
+                            state.set_info(format!("Volume: {}%", (state.volume * 100.0).round() as u32));
+                        }
                         _ => {}
                     }
                 }
@@ -717,10 +728,11 @@ fn draw(
             track.duration_secs / 60,
             track.duration_secs % 60
         );
+        let vol = format!("VOL {}%", (state.volume * 100.0).round() as u32);
         (
             format!(
-                " {} {} — {}  [{} / {}]",
-                status, track.title, track.artist, elapsed, total
+                " {} {} — {}  [{} / {}]  {}",
+                status, track.title, track.artist, elapsed, total, vol
             ),
             Color::Yellow,
         )
@@ -741,7 +753,7 @@ fn draw(
     // キーバインドペイン（リピートモード表示付き）
     // テキストがターミナル幅を超える場合はマーキースクロール
     let keybinds_raw = format!(
-        " [↑↓] select  [Enter] play  [Space] pause  [n/p] move+play  [a] add to playlist  [c] clear playlist  [r] repeat:{}  [s] save playlist  [o] open source  [q] quit",
+        " [↑↓] select  [Enter] play  [Space] pause  [n/p] move+play  [a] add to playlist  [c] clear playlist  [r] repeat:{}  [s] save playlist  [o] open source  [+/-] volume  [q] quit",
         state.repeat.label()
     );
     let keybinds_inner_width = chunks[2].width.saturating_sub(2) as usize;
