@@ -455,12 +455,17 @@ fn load_source(state: &mut AppState, player: &Player, entry: &SourceEntry) {
                 let tracks: Vec<_> = pl
                     .paths
                     .iter()
-                    .filter(|p| p.exists())
-                    .filter_map(|p| match read_metadata(p) {
-                        Ok(t) => Some(t),
-                        Err(_) => {
+                    .filter_map(|p| {
+                        if !p.exists() {
                             skip += 1;
-                            None
+                            return None;
+                        }
+                        match read_metadata(p) {
+                            Ok(t) => Some(t),
+                            Err(_) => {
+                                skip += 1;
+                                None
+                            }
                         }
                     })
                     .collect();
@@ -470,12 +475,9 @@ fn load_source(state: &mut AppState, player: &Player, entry: &SourceEntry) {
                 }
                 state.replace_tracks(tracks);
                 if skip > 0 {
-                    state.set_info(format!(
-                        "Loaded ({} file(s) skipped, playlist cleared)",
-                        skip
-                    ));
+                    state.set_info(format!("Playlist loaded: {} missing file(s) skipped", skip));
                 } else {
-                    state.set_info("Source loaded (playlist cleared)".to_string());
+                    state.set_info("Playlist loaded".to_string());
                 }
             }
         },
