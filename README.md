@@ -13,7 +13,10 @@ macOS (Apple Silicon) 向けローカル音楽プレイヤー。
 - **マーキースクロール**: 列幅を超えるタイトル・アーティスト名を選択中に自動スクロール（CJK 対応）
 - **自動次曲再生**: 曲が終わると自動的に次のトラックを再生
 - **リピートモード**: Off / All / One の 3 段階をサイクル切り替え
+- **シャッフル再生**: ランダムトラック選択をトグルで切り替え
+- **音量調整**: `+` / `-` キーで ±5%（0〜200%）、Now Playing に現在音量を表示
 - **プレイリスト管理**: トラックの追加・保存・読み込み・削除（`~/.config/crabplay/playlists/` に JSON 保存）
+- **欠損ファイル通知**: プレイリスト読み込み時に存在しないファイルがあればスキップ数を通知
 - **ソース切り替え**: ディレクトリとプレイリストをオーバーレイ UI から動的に切り替え
 - **リスト出力モード**: TUI を起動せず text / JSON 形式でトラック一覧を出力
 
@@ -91,6 +94,8 @@ crabplay --dir ~/Music --list --format json
 | `n` | 次の曲へスキップして再生 |
 | `p` | 前の曲へスキップして再生 |
 | `r` | リピートモード切り替え (Off → All → One) |
+| `z` | シャッフル On / Off |
+| `+` / `-` | 音量 +5% / -5% |
 | `a` | 選択曲をプレイリストに追加 |
 | `c` | プレイリストをクリア |
 | `s` | プレイリストを名前をつけて保存 |
@@ -137,6 +142,7 @@ cargo build --release
 | `anyhow` | 1 | アプリ層エラーハンドリング |
 | `thiserror` | 2 | ライブラリ層エラー型定義 |
 | `serde` / `serde_json` | 1 | JSON 出力 |
+| `rand` | 0.10 | シャッフル再生のランダム選択 |
 
 詳細は [docs/crate-guide.md](docs/crate-guide.md) および [docs/library-deep-dive.md](docs/library-deep-dive.md) を参照。
 
@@ -144,8 +150,6 @@ cargo build --release
 
 具体的な実装手順は [docs/extension-cookbook.md](docs/extension-cookbook.md) を参照。
 
-- **音量調整**: `Sink::set_volume(f32)` を Player に追加し、`+` / `-` キーにバインド
-- **シャッフル**: `rand` クレートで AppState 内の再生順序をシャッフル
 - **対応フォーマット追加**: `Cargo.toml` に symphonia feature を追加、scanner の拡張子リストを更新
 - **設定ファイル**: `dirs` + `toml` で `~/.config/crabplay/config.toml` をサポート
 - **GUI 化**: `ui/` モジュールを `iced` 実装に差し替え
