@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use rand::RngExt;
+
 use crate::models::TrackInfo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +62,8 @@ pub struct AppState {
     playback_started_at: Option<std::time::Instant>,
     /// 音量（0.0〜2.0、デフォルト 1.0）。
     pub volume: f32,
+    /// シャッフル再生。
+    pub shuffle: bool,
 }
 
 impl AppState {
@@ -78,6 +82,7 @@ impl AppState {
             repeat: RepeatMode::Off,
             playback_started_at: None,
             volume: 1.0,
+            shuffle: false,
         }
     }
 
@@ -202,6 +207,11 @@ impl AppState {
         self.repeat = self.repeat.cycle();
     }
 
+    /// シャッフルのオン/オフを切り替える。
+    pub fn toggle_shuffle(&mut self) {
+        self.shuffle = !self.shuffle;
+    }
+
     /// 音量を 5% 上げる（上限 200%）。
     pub fn volume_up(&mut self) {
         self.volume = (self.volume + 0.05).min(2.0);
@@ -266,6 +276,25 @@ impl AppState {
                 return true;
             }
             return false;
+        }
+        if self.shuffle {
+            if self.tracks.is_empty() {
+                return false;
+            }
+            let current = self.playing_index.unwrap_or(self.selected);
+            if self.tracks.len() == 1 {
+                self.selected = 0;
+            } else {
+                let mut rng = rand::rng();
+                loop {
+                    let next = rng.random_range(0..self.tracks.len());
+                    if next != current {
+                        self.selected = next;
+                        break;
+                    }
+                }
+            }
+            return true;
         }
         if self.repeat == RepeatMode::All {
             if self.tracks.is_empty() {
@@ -409,5 +438,51 @@ mod tests {
             state.selected, 0,
             "RepeatMode::One は playing_index のトラックに戻す"
         );
+    }
+
+    #[test]
+    fn advance_shuffle_returns_true_and_different_track() {
+        let mut state = make_state(10);
+        state.selected = 0;
+        state.set_playing();
+        state.shuffle = true;
+        // 複数回試行して、現在と異なるトラックが選ばれることを確認
+        let mut saw_different = false;
+        for _ in 0..20 {
+            assert!(state.advance());
+            if state.selected != 0 {
+                saw_different = true;
+                break;
+            }
+        }
+        assert!(saw_different, "shuffle should select a different track");
+    }
+
+    #[test]
+    fn advance_shuffle_empty_returns_false() {
+        let mut state = AppState::new(vec![], PathBuf::from("."));
+        state.shuffle = true;
+        assert!(!state.advance());
+    }
+
+    #[test]
+    fn advance_shuffle_single_track_returns_true() {
+        let mut state = make_state(1);
+        state.selected = 0;
+        state.set_playing();
+        state.shuffle = true;
+        assert!(state.advance());
+        assert_eq!(state.selected, 0);
+    }
+
+    #[test]
+    fn advance_repeat_one_takes_priority_over_shuffle() {
+        let mut state = make_state(5);
+        state.selected = 2;
+        state.set_playing();
+        state.shuffle = true;
+        state.repeat = RepeatMode::One;
+        assert!(state.advance());
+        assert_eq!(state.selected, 2, "RepeatMode::One はシャッフルより優先");
     }
 }
