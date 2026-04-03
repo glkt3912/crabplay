@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use rand::RngExt;
+use rand::Rng;
 
 use crate::models::TrackInfo;
 
@@ -285,9 +285,9 @@ impl AppState {
             if self.tracks.len() == 1 {
                 self.selected = 0;
             } else {
-                let mut rng = rand::rng();
+                let mut rng = rand::thread_rng();
                 loop {
-                    let next = rng.random_range(0..self.tracks.len());
+                    let next = rng.gen_range(0..self.tracks.len());
                     if next != current {
                         self.selected = next;
                         break;
