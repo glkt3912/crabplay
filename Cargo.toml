@@ -15,6 +15,7 @@ walkdir = "2"
 ratatui = "0.28"
 crossterm = "0.28"
 unicode-width = "0.1"
+rand = "0.8"
 
 [dev-dependencies]
 assert_cmd = "2.0"
