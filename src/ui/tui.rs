@@ -213,6 +213,16 @@ fn event_loop<B: ratatui::backend::Backend>(
                                 ui_mode = UiMode::NameInput;
                             }
                         }
+                        // シャッフルのトグル
+                        KeyCode::Char('z') => {
+                            state.toggle_shuffle();
+                            let msg = if state.shuffle {
+                                "Shuffle: On"
+                            } else {
+                                "Shuffle: Off"
+                            };
+                            state.set_info(msg.to_string());
+                        }
                         // ソース選択オーバーレイを開く
                         KeyCode::Char('o') => {
                             picker_entries = build_source_entries(&state.source_dir);
@@ -737,10 +747,11 @@ fn draw(
             track.duration_secs % 60
         );
         let vol = format!("VOL {}%", (state.volume * 100.0).round() as u32);
+        let shuf = if state.shuffle { "  SHUF" } else { "" };
         (
             format!(
-                " {} {} — {}  [{} / {}]  {}",
-                status, track.title, track.artist, elapsed, total, vol
+                " {} {} — {}  [{} / {}]  {}{}",
+                status, track.title, track.artist, elapsed, total, vol, shuf
             ),
             Color::Yellow,
         )
@@ -761,8 +772,9 @@ fn draw(
     // キーバインドペイン（リピートモード表示付き）
     // テキストがターミナル幅を超える場合はマーキースクロール
     let keybinds_raw = format!(
-        " [↑↓] select  [Enter] play  [Space] pause  [n/p] move+play  [a] add to playlist  [c] clear playlist  [r] repeat:{}  [s] save playlist  [o] open source  [+/-] volume  [q] quit",
-        state.repeat.label()
+        " [↑↓] select  [Enter] play  [Space] pause  [n/p] move+play  [a] add to playlist  [c] clear playlist  [r] repeat:{}  [z] shuffle:{}  [s] save playlist  [o] open source  [+/-] volume  [q] quit",
+        state.repeat.label(),
+        if state.shuffle { "On" } else { "Off" }
     );
     let keybinds_inner_width = chunks[2].width.saturating_sub(2) as usize;
     let keybinds_display = if UnicodeWidthStr::width(keybinds_raw.as_str()) > keybinds_inner_width {
