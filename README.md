@@ -142,7 +142,7 @@ cargo build --release
 | `anyhow` | 1 | アプリ層エラーハンドリング |
 | `thiserror` | 2 | ライブラリ層エラー型定義 |
 | `serde` / `serde_json` | 1 | JSON 出力 |
-| `rand` | 0.10 | シャッフル再生のランダム選択 |
+| `rand` | 0.8 | シャッフル再生のランダム選択 |
 
 詳細は [docs/crate-guide.md](docs/crate-guide.md) および [docs/library-deep-dive.md](docs/library-deep-dive.md) を参照。
 
