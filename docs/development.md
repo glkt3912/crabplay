@@ -76,12 +76,50 @@ TUI の動作は自動テストが難しいため、手動で確認する:
 
 ## CI
 
-`.github/workflows/ci.yml` で以下を自動実行（macOS × stable Rust）:
+### チェック (`ci.yml`)
+
+PR・main push 時に macOS × stable Rust で自動実行:
 
 1. `cargo fmt --check` — フォーマット確認
 2. `cargo clippy -- -D warnings` — lint
 3. `cargo build --locked` — ビルド
 4. `cargo test` — テスト
+
+### 自動フォーマット (`fmt.yml`)
+
+PR 作成・更新時に `cargo fmt` を実行し、差分があればそのまま PR ブランチにコミットする。
+手動でフォーマットを直す必要はなく、CI が自動修正する。
+
+### リリース (`release.yml`)
+
+`v*` タグを push すると自動的にリリースビルドを行い GitHub Releases に公開する。
+
+## リリース手順
+
+[Semantic Versioning](https://semver.org/)（MAJOR.MINOR.PATCH）に従う。
+
+1. `Cargo.toml` の `version` を更新してコミット:
+
+```bash
+# 例: 0.1.0 → 0.2.0
+# Cargo.toml の version = "0.2.0" に書き換え
+git add Cargo.toml
+git commit -m "chore: bump version to 0.2.0"
+git push
+```
+
+2. タグを打って push:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+3. GitHub Actions の `release.yml` が自動で以下を実行:
+   - `Cargo.toml` バージョンとタグの一致を検証
+   - `cargo build --release` で macOS バイナリをビルド
+   - `crabplay-v0.2.0-aarch64-apple-darwin.tar.gz` を生成
+   - GitHub Releases を作成してバイナリを添付
 
 ## よくあるエラー
 
