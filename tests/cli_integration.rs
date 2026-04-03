@@ -36,7 +36,10 @@ fn test_version_flag() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("crabplay 0.1.0"));
+        .stdout(predicate::str::contains(format!(
+            "crabplay {}",
+            env!("CARGO_PKG_VERSION")
+        )));
 }
 
 #[test]
