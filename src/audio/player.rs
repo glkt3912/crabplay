@@ -55,4 +55,8 @@ impl Player {
     pub fn get_pos(&self) -> std::time::Duration {
         self.sink.get_pos()
     }
+
+    pub fn set_volume(&self, volume: f32) {
+        self.sink.set_volume(volume);
+    }
 }

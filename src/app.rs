@@ -58,6 +58,8 @@ pub struct AppState {
     pub repeat: RepeatMode,
     /// load_and_play 直後の is_empty() 誤検知を防ぐための再生開始時刻。
     playback_started_at: Option<std::time::Instant>,
+    /// 音量（0.0〜2.0、デフォルト 1.0）。
+    pub volume: f32,
 }
 
 impl AppState {
@@ -75,6 +77,7 @@ impl AppState {
             playlist: Vec::new(),
             repeat: RepeatMode::Off,
             playback_started_at: None,
+            volume: 1.0,
         }
     }
 
@@ -197,6 +200,16 @@ impl AppState {
     /// リピートモードをサイクルする。
     pub fn cycle_repeat(&mut self) {
         self.repeat = self.repeat.cycle();
+    }
+
+    /// 音量を 5% 上げる（上限 200%）。
+    pub fn volume_up(&mut self) {
+        self.volume = (self.volume + 0.05).min(2.0);
+    }
+
+    /// 音量を 5% 下げる（下限 0%）。
+    pub fn volume_down(&mut self) {
+        self.volume = (self.volume - 0.05).max(0.0);
     }
 
     /// エラーメッセージをセットし、5秒タイムアウト用の時刻を記録する。
