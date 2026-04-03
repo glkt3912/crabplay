@@ -458,10 +458,7 @@ fn load_source(state: &mut AppState, player: &Player, entry: &SourceEntry) {
                 }
                 state.replace_tracks(tracks);
                 if skip > 0 {
-                    state.set_info(format!(
-                        "Playlist loaded: {} missing file(s) skipped",
-                        skip
-                    ));
+                    state.set_info(format!("Playlist loaded: {} missing file(s) skipped", skip));
                 } else {
                     state.set_info("Playlist loaded".to_string());
                 }
