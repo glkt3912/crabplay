@@ -233,12 +233,13 @@ fn event_loop<B: ratatui::backend::Backend>(
                         KeyCode::Left | KeyCode::Right
                             if state.player_state() != PlayerState::Stopped =>
                         {
-                            const SEEK_SECS: u64 = 5;
+                            const SEEK_OFFSET: std::time::Duration =
+                                std::time::Duration::from_secs(5);
                             let current = player.get_pos();
-                            let target = if key.code == KeyCode::Left {
-                                current.saturating_sub(std::time::Duration::from_secs(SEEK_SECS))
+                            let target = if matches!(key.code, KeyCode::Left) {
+                                current.saturating_sub(SEEK_OFFSET)
                             } else {
-                                current + std::time::Duration::from_secs(SEEK_SECS)
+                                current + SEEK_OFFSET
                             };
                             if let Err(e) = player.seek(target) {
                                 state.set_error(format!("Seek failed: {e}"));

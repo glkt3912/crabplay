@@ -72,7 +72,7 @@ impl Player {
 
     /// 指定位置にシークする。トラックの長さを超えた場合は末尾にクランプされる。
     ///
-    /// 再生中・一時停止中どちらでも有効。停止中は何もしない。
+    /// 再生中・一時停止中どちらでも有効。停止中（ソース未ロード）に呼ぶかどうかの判断は呼び出し側の責務。
     pub fn seek(&self, pos: std::time::Duration) -> Result<(), AppError> {
         self.sink
             .try_seek(pos)
