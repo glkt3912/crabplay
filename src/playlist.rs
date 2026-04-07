@@ -21,10 +21,19 @@ impl Playlist {
     pub fn save(&self, dir: &Path) -> Result<PathBuf> {
         std::fs::create_dir_all(dir)?;
         let trimmed = self.name.trim();
-        anyhow::ensure!(!trimmed.is_empty(), "playlist name must not be empty or whitespace-only");
+        anyhow::ensure!(
+            !trimmed.is_empty(),
+            "playlist name must not be empty or whitespace-only"
+        );
         let safe: String = trimmed
             .chars()
-            .map(|c| if c == '/' || c == '\0' || c.is_control() { '_' } else { c })
+            .map(|c| {
+                if c == '/' || c == '\0' || c.is_control() {
+                    '_'
+                } else {
+                    c
+                }
+            })
             .collect();
         let dest = dir.join(format!("{safe}.json"));
         std::fs::write(&dest, serde_json::to_string_pretty(self)?)?;
