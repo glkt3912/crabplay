@@ -20,21 +20,21 @@ impl Playlist {
     /// `dir` 配下に `<name>.json` として保存し、保存先パスを返す。
     pub fn save(&self, dir: &Path) -> Result<PathBuf> {
         std::fs::create_dir_all(dir)?;
-        let safe: String = self
-            .name
+        let trimmed = self.name.trim();
+        anyhow::ensure!(
+            !trimmed.is_empty(),
+            "playlist name must not be empty or whitespace-only"
+        );
+        let safe: String = trimmed
             .chars()
             .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                    c
-                } else {
+                if c == '/' || c == '\0' || c.is_control() {
                     '_'
+                } else {
+                    c
                 }
             })
             .collect();
-        anyhow::ensure!(
-            !safe.is_empty(),
-            "playlist name is empty after sanitization"
-        );
         let dest = dir.join(format!("{safe}.json"));
         std::fs::write(&dest, serde_json::to_string_pretty(self)?)?;
         Ok(dest)
