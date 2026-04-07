@@ -55,3 +55,94 @@ impl Playlist {
         base.join("crabplay").join("playlists")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roundtrip_preserves_name_and_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = vec![
+            PathBuf::from("/music/track1.mp3"),
+            PathBuf::from("/music/track2.flac"),
+        ];
+        let original = Playlist::new("my-playlist", paths.clone());
+        let saved = original.save(dir.path()).unwrap();
+
+        let loaded = Playlist::load(&saved).unwrap();
+        assert_eq!(loaded.name, "my-playlist");
+        assert_eq!(loaded.paths, paths);
+    }
+
+    #[test]
+    fn roundtrip_non_ascii_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = Playlist::new("お気に入り", vec![PathBuf::from("/music/a.mp3")]);
+        let saved = original.save(dir.path()).unwrap();
+
+        assert!(saved.file_name().unwrap().to_string_lossy().starts_with("お気に入り"));
+        let loaded = Playlist::load(&saved).unwrap();
+        assert_eq!(loaded.name, "お気に入り");
+    }
+
+    #[test]
+    fn save_trims_whitespace_from_filename() {
+        let dir = tempfile::tempdir().unwrap();
+        let pl = Playlist::new("  spaced  ", vec![]);
+        let saved = pl.save(dir.path()).unwrap();
+
+        assert_eq!(saved.file_name().unwrap(), "spaced.json");
+        let loaded = Playlist::load(&saved).unwrap();
+        assert_eq!(loaded.name, "  spaced  ");
+    }
+
+    #[test]
+    fn save_replaces_slash_with_underscore() {
+        let dir = tempfile::tempdir().unwrap();
+        let pl = Playlist::new("BGM/作業用", vec![]);
+        let saved = pl.save(dir.path()).unwrap();
+
+        assert_eq!(saved.file_name().unwrap(), "BGM_作業用.json");
+    }
+
+    #[test]
+    fn save_replaces_control_chars() {
+        let dir = tempfile::tempdir().unwrap();
+        let pl = Playlist::new("name\twith\ttabs", vec![]);
+        let saved = pl.save(dir.path()).unwrap();
+
+        assert_eq!(saved.file_name().unwrap(), "name_with_tabs.json");
+    }
+
+    #[test]
+    fn save_rejects_empty_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let pl = Playlist::new("", vec![]);
+        assert!(pl.save(dir.path()).is_err());
+    }
+
+    #[test]
+    fn save_rejects_whitespace_only_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let pl = Playlist::new("   ", vec![]);
+        assert!(pl.save(dir.path()).is_err());
+    }
+
+    #[test]
+    fn load_nonexistent_file_returns_error() {
+        let result = Playlist::load(Path::new("/nonexistent/path/playlist.json"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn roundtrip_with_nonexistent_track_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = vec![PathBuf::from("/does/not/exist.mp3")];
+        let original = Playlist::new("ghost-tracks", paths.clone());
+        let saved = original.save(dir.path()).unwrap();
+
+        let loaded = Playlist::load(&saved).unwrap();
+        assert_eq!(loaded.paths, paths);
+    }
+}
