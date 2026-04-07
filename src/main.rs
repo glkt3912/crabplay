@@ -17,7 +17,10 @@ fn run(args: &Args) -> Result<()> {
         .filter_map(|p| match read_metadata(p) {
             Ok(track) => Some(track),
             Err(e) => {
-                eprintln!("Warning: failed to read metadata for '{}': {e}", p.display());
+                eprintln!(
+                    "Warning: failed to read metadata for '{}': {e}",
+                    p.display()
+                );
                 error_count += 1;
                 None
             }
