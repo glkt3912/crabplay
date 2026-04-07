@@ -23,16 +23,10 @@ impl Playlist {
         let safe: String = self
             .name
             .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                    c
-                } else {
-                    '_'
-                }
-            })
+            .map(|c| if c == '/' || c == '\0' { '_' } else { c })
             .collect();
         anyhow::ensure!(
-            !safe.is_empty(),
+            !safe.trim().is_empty(),
             "playlist name is empty after sanitization"
         );
         let dest = dir.join(format!("{safe}.json"));
