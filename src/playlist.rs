@@ -81,13 +81,7 @@ mod tests {
         let original = Playlist::new("お気に入り", vec![PathBuf::from("/music/a.mp3")]);
         let saved = original.save(dir.path()).unwrap();
 
-        assert!(
-            saved
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("お気に入り")
-        );
+        assert_eq!(saved.file_name().unwrap(), "お気に入り.json");
         let loaded = Playlist::load(&saved).unwrap();
         assert_eq!(loaded.name, "お気に入り");
     }
@@ -137,8 +131,18 @@ mod tests {
 
     #[test]
     fn load_nonexistent_file_returns_error() {
-        let result = Playlist::load(Path::new("/nonexistent/path/playlist.json"));
+        let dir = tempfile::tempdir().unwrap();
+        let result = Playlist::load(&dir.path().join("does_not_exist.json"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn save_replaces_null_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let pl = Playlist::new("name\0with\0nulls", vec![]);
+        let saved = pl.save(dir.path()).unwrap();
+
+        assert_eq!(saved.file_name().unwrap(), "name_with_nulls.json");
     }
 
     #[test]
