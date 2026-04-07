@@ -81,7 +81,13 @@ mod tests {
         let original = Playlist::new("お気に入り", vec![PathBuf::from("/music/a.mp3")]);
         let saved = original.save(dir.path()).unwrap();
 
-        assert!(saved.file_name().unwrap().to_string_lossy().starts_with("お気に入り"));
+        assert!(
+            saved
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("お気に入り")
+        );
         let loaded = Playlist::load(&saved).unwrap();
         assert_eq!(loaded.name, "お気に入り");
     }
