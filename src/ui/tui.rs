@@ -543,7 +543,7 @@ fn format_queue_badge(positions: &[usize]) -> String {
 
 /// 各文字の (累積開始列, char, 表示幅) テーブルと文字列全体の表示幅を返す。
 fn build_col_table(s: &str) -> (Vec<(usize, char, usize)>, usize) {
-    let mut col_table: Vec<(usize, char, usize)> = Vec::with_capacity(s.chars().count());
+    let mut col_table: Vec<(usize, char, usize)> = Vec::new();
     let mut acc = 0usize;
     for ch in s.chars() {
         let w = UnicodeWidthChar::width(ch).unwrap_or(1).max(1);
@@ -640,10 +640,10 @@ impl MarqueeCache {
         if s.is_empty() {
             return " ".repeat(max_width);
         }
-        if !self.entries.contains_key(s) {
-            self.entries.insert(s.to_owned(), build_col_table(s));
-        }
-        let (table, total_disp) = self.entries.get(s).unwrap();
+        let (table, total_disp) = self
+            .entries
+            .entry(s.to_owned())
+            .or_insert_with(|| build_col_table(s));
         marquee_from_table(table, *total_disp, offset, max_width)
     }
 
