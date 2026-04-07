@@ -92,6 +92,8 @@ pub struct Player {
 `toggle_pause()` はポーズ/再開を切り替え、**切り替え後の状態（`true` = ポーズ中）** を返す。
 呼び出し側は戻り値だけで `set_paused()` / `set_resumed()` を選択できるため、直後に `is_paused()` を呼ぶ二段階同期が不要。
 
+`seek(pos: Duration)` は `Sink::try_seek()` を呼んで指定位置にシークする。停止中（ソース未ロード）に呼ばないよう判断するのは呼び出し側（tui.rs）の責務。`SEEK_OFFSET = 5秒` は `tui.rs` モジュールレベル定数として定義。
+
 ## TUI アーキテクチャ
 
 ```
@@ -119,6 +121,8 @@ ui::tui::run()
               │     │     │               └── load_and_play() 成功 → set_playing() / 失敗 → set_error() + set_stopped()
               │     │     ├── Space  → PlayerState::Stopped のときは無視
               │     │     │           Player::toggle_pause() → true → set_paused() / false → set_resumed()
+              │     │     ├── ←/→   → PlayerState::Stopped のときは無視
+              │     │     │           clear_messages() + Player::seek(current_pos ± SEEK_OFFSET)
               │     │     ├── ↑/↓   → AppState::next/prev()
               │     │     ├── a      → playlist_add_selected() → true: playlist_dirty + set_info("Added PL:N")
               │     │     │                                     → false: set_info("Already in playlist")
@@ -290,7 +294,7 @@ pub struct Playlist {
 }
 ```
 
-- `save(&dir)` — ファイル名を ASCII 英数字・`-`・`_` のみにサニタイズして `dir/<name>.json` に保存。サニタイズ後が空文字になる場合はエラーを返す
+- `save(&dir)` — 名前を `trim()` して `/ \0 制御文字` を `_` に置換したファイル名で `dir/<name>.json` に保存。trim 後が空文字の場合はエラーを返す
 - `load(&path)` — JSON ファイルから復元
 - `default_dir()` — `XDG_CONFIG_HOME` → `HOME/.config` → `.` の優先順で解決し、`crabplay/playlists/` を付加して返す
 
