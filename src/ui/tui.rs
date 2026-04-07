@@ -233,8 +233,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                         KeyCode::Left | KeyCode::Right
                             if state.player_state() != PlayerState::Stopped =>
                         {
-                            const SEEK_OFFSET: std::time::Duration =
-                                std::time::Duration::from_secs(5);
+                            state.clear_messages();
                             let current = player.get_pos();
                             let target = if matches!(key.code, KeyCode::Left) {
                                 current.saturating_sub(SEEK_OFFSET)
@@ -511,6 +510,7 @@ fn load_source(state: &mut AppState, player: &Player, entry: &SourceEntry) {
 }
 
 const BADGE_WIDTH: usize = 6;
+const SEEK_OFFSET: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// 文字列を `width` 表示列に合わせてパディング（右揃えスペース）または切り詰めする。
 ///
