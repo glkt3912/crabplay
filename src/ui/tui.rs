@@ -229,6 +229,21 @@ fn event_loop<B: ratatui::backend::Backend>(
                             picker_selected = 0;
                             ui_mode = UiMode::SourcePicker;
                         }
+                        // シーク（±5秒）
+                        KeyCode::Left | KeyCode::Right
+                            if state.player_state() != PlayerState::Stopped =>
+                        {
+                            const SEEK_SECS: u64 = 5;
+                            let current = player.get_pos();
+                            let target = if key.code == KeyCode::Left {
+                                current.saturating_sub(std::time::Duration::from_secs(SEEK_SECS))
+                            } else {
+                                current + std::time::Duration::from_secs(SEEK_SECS)
+                            };
+                            if let Err(e) = player.seek(target) {
+                                state.set_error(format!("Seek failed: {e}"));
+                            }
+                        }
                         // 音量調整
                         KeyCode::Char('+') | KeyCode::Char('=') => {
                             state.volume_up();
@@ -817,7 +832,7 @@ fn draw(
     // キーバインドペイン（リピートモード表示付き）
     // テキストがターミナル幅を超える場合はマーキースクロール
     let keybinds_raw = format!(
-        " [↑↓] select  [Enter] play  [Space] pause  [n/p] move+play  [a] add to playlist  [c] clear playlist  [r] repeat:{}  [z] shuffle:{}  [s] save playlist  [o] open source  [+/-] volume  [q] quit",
+        " [↑↓] select  [Enter] play  [Space] pause  [←/→] seek ±5s  [n/p] move+play  [a] add to playlist  [c] clear playlist  [r] repeat:{}  [z] shuffle:{}  [s] save playlist  [o] open source  [+/-] volume  [q] quit",
         state.repeat.label(),
         if state.shuffle { "On" } else { "Off" }
     );

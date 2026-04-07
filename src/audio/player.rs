@@ -70,6 +70,15 @@ impl Player {
         self.sink.get_pos()
     }
 
+    /// 指定位置にシークする。トラックの長さを超えた場合は末尾にクランプされる。
+    ///
+    /// 再生中・一時停止中どちらでも有効。停止中は何もしない。
+    pub fn seek(&self, pos: std::time::Duration) -> Result<(), AppError> {
+        self.sink
+            .try_seek(pos)
+            .map_err(|e| AppError::Audio(e.to_string()))
+    }
+
     /// 音量を設定する（`0.0` = 無音、`1.0` = 標準、`2.0` = 最大）。
     pub fn set_volume(&self, volume: f32) {
         self.sink.set_volume(volume);
