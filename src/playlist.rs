@@ -3,13 +3,17 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+/// 名前付きプレイリスト。トラックパスの一覧を JSON ファイルとして保存・読み込みできる。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Playlist {
+    /// プレイリスト名。ファイル名にも使用される（`/` とヌルバイト・制御文字は `_` に変換）。
     pub name: String,
+    /// プレイリストに含まれる音声ファイルのパス一覧。
     pub paths: Vec<PathBuf>,
 }
 
 impl Playlist {
+    /// 名前とパス一覧から `Playlist` を生成する。
     pub fn new(name: impl Into<String>, paths: Vec<PathBuf>) -> Self {
         Self {
             name: name.into(),

@@ -6,6 +6,10 @@ use lofty::probe::Probe;
 use crate::error::AppError;
 use crate::models::TrackInfo;
 
+/// 音声ファイルからメタデータを読み取り、[`TrackInfo`] を返す。
+///
+/// タイトルタグが存在しない場合はファイル名（拡張子なし）をタイトルとして使用する。
+/// ファイルのオープンやデコードに失敗した場合は [`AppError::Metadata`] を返す。
 pub fn read_metadata(path: &Path) -> Result<TrackInfo, AppError> {
     let tagged = Probe::open(path)
         .and_then(|p| p.read())

@@ -5,14 +5,19 @@ use rand::Rng;
 
 use crate::models::TrackInfo;
 
+/// リピート再生モード。`Off` → `All` → `One` → `Off` の順でサイクルする。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RepeatMode {
+    /// リピートなし。末尾トラックで再生が止まる。
     Off,
+    /// 全曲リピート。末尾の次は先頭に戻る。
     All,
+    /// 1曲リピート。同じトラックを繰り返す。
     One,
 }
 
 impl RepeatMode {
+    /// 次のリピートモードに切り替えて返す（`Off` → `All` → `One` → `Off`）。
     pub fn cycle(self) -> Self {
         match self {
             RepeatMode::Off => RepeatMode::All,
@@ -21,6 +26,7 @@ impl RepeatMode {
         }
     }
 
+    /// TUI 表示用のラベル文字列を返す（`"Off"` / `"All"` / `"One"`）。
     pub fn label(self) -> &'static str {
         match self {
             RepeatMode::Off => "Off",
@@ -30,17 +36,27 @@ impl RepeatMode {
     }
 }
 
+/// 音声プレイヤーの再生状態。
+///
+/// `Copy` を実装するため、参照ではなく値で渡す。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerState {
+    /// 停止中（ロード前、または再生完了・明示的停止後）。
     Stopped,
+    /// 再生中。
     Playing,
+    /// 一時停止中。
     Paused,
 }
 
-// PlayerState は Copy なので参照ではなく値で返す。呼び出し側で * デリファレンス不要。
-
+/// アプリケーション全体の状態。TUI のイベントループから `&mut AppState` として渡される。
+///
+/// トラックリスト・再生状態・プレイリスト・メッセージ・音量など全ての UI 状態を保持する。
+/// `Player` は音声 I/O のみを担い、再生状態の管理はこの構造体が行う。
 pub struct AppState {
+    /// スキャン済みトラックの一覧。
     pub tracks: Vec<TrackInfo>,
+    /// カーソル位置（0 始まり）。
     pub selected: usize,
     /// 起動時のスキャンディレクトリ。ソース選択でディレクトリに戻る際に使用。
     pub source_dir: PathBuf,
@@ -67,6 +83,7 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// トラック一覧とスキャンディレクトリを受け取り、初期状態の `AppState` を生成する。
     pub fn new(tracks: Vec<TrackInfo>, source_dir: PathBuf) -> Self {
         Self {
             tracks,
@@ -86,12 +103,14 @@ impl AppState {
         }
     }
 
+    /// カーソルを1つ下に移動する。末尾では移動しない。
     pub fn next(&mut self) {
         if self.selected + 1 < self.tracks.len() {
             self.selected += 1;
         }
     }
 
+    /// カーソルを1つ上に移動する。先頭では移動しない。
     pub fn prev(&mut self) {
         if self.selected > 0 {
             self.selected -= 1;
@@ -103,10 +122,12 @@ impl AppState {
         self.playing_index.and_then(|i| self.tracks.get(i))
     }
 
+    /// 現在再生中のトラックのインデックスを返す。停止中は `None`。
     pub fn playing_index(&self) -> Option<usize> {
         self.playing_index
     }
 
+    /// 現在の [`PlayerState`] を返す。
     pub fn player_state(&self) -> PlayerState {
         self.player_state
     }
@@ -125,11 +146,13 @@ impl AppState {
         self.player_state = PlayerState::Playing;
     }
 
+    /// 一時停止状態に遷移する。`playback_started_at` をクリアして誤検知タイマーをリセットする。
     pub fn set_paused(&mut self) {
         self.player_state = PlayerState::Paused;
         self.playback_started_at = None;
     }
 
+    /// 停止状態に遷移し、`playing_index` をクリアする。
     pub fn set_stopped(&mut self) {
         self.playing_index = None;
         self.player_state = PlayerState::Stopped;
@@ -175,10 +198,12 @@ impl AppState {
         self.playlist.clear();
     }
 
+    /// プレイリストに登録されているトラック数を返す。
     pub fn playlist_len(&self) -> usize {
         self.playlist.len()
     }
 
+    /// プレイリストが空かどうかを返す。
     pub fn playlist_is_empty(&self) -> bool {
         self.playlist.is_empty()
     }

@@ -22,6 +22,7 @@ pub struct Args {
 }
 
 impl Args {
+    /// 引数の整合性を検証する。`dir` の存在確認と `format` の許容値チェックを行う。
     pub fn validate(&self) -> Result<(), AppError> {
         if !self.dir.exists() {
             return Err(AppError::Other(format!(
