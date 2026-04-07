@@ -234,25 +234,34 @@ Unicode 規格では各文字に以下の幅属性が定義されている:
 
 ### マーキー実装での使い方
 
+`build_col_table` で各文字の累積列位置テーブルを構築し、`marquee_from_table` でスクロール文字列を生成する。
+`MarqueeCache` がテーブルを文字列ごとにキャッシュし、同一文字列の 2 フレーム目以降は `build_col_table` の O(N) 計算をスキップする。
+
 ```rust
-fn marquee_slice(s: &str, offset: usize, max_width: usize) -> String {
-    let chars: Vec<char> = s.chars().collect();
-    let mut result = String::new();
-    let mut width = 0usize;
-    let mut idx = offset % (chars.len() + 2);  // 末尾に空白2文字分のギャップ
-
-    loop {
-        let ch = chars[idx % chars.len()];
-        let mut buf = [0u8; 4];
-        let ch_str: &str = ch.encode_utf8(&mut buf);
-        let ch_width = UnicodeWidthStr::width(ch_str);
-
-        if width + ch_width > max_width { break; }
-        result.push(ch);
-        width += ch_width;
-        idx += 1;
+// 1. テーブル構築（キャッシュがあればスキップ）
+fn build_col_table(s: &str) -> (Vec<(usize, char, usize)>, usize) {
+    let mut col_table = Vec::new();
+    let mut acc = 0usize;
+    for ch in s.chars() {
+        let w = UnicodeWidthChar::width(ch).unwrap_or(1).max(1);
+        col_table.push((acc, ch, w));
+        acc += w;
     }
-    result
+    (col_table, acc)  // (テーブル, 文字列全体の表示幅)
+}
+
+// 2. テーブルからスクロール文字列を生成
+fn marquee_from_table(col_table: &[(usize, char, usize)], total_disp: usize,
+                      offset: usize, max_width: usize) -> String { ... }
+
+// 3. キャッシュ経由で呼び出す（draw() から使用）
+impl MarqueeCache {
+    fn render(&mut self, s: &str, max_width: usize) -> String {
+        let (table, total_disp) = self.entries
+            .entry(s.to_owned())
+            .or_insert_with(|| build_col_table(s));
+        marquee_from_table(table, *total_disp, self.offset, max_width)
+    }
 }
 ```
 

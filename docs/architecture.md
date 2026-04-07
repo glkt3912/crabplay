@@ -101,7 +101,8 @@ ui::tui::run()
   │     └── drop() → disable_raw_mode() + LeaveAlternateScreen + cursor::Show
   ├── Terminal::new()             ratatui ターミナル初期化
   └── event_loop()
-        ├── marquee_offset / marquee_tick    マーキースクロール状態（ローカル変数）
+        ├── MarqueeCache { offset, entries }  マーキースクロール状態（offset）と col_table キャッシュ
+        │     └── marquee_tick: u32            スクロール速度制御（5フレームで offset += 1）
         ├── playlist_badge_map / playlist_dirty  バッジキャッシュ（playlist 変更時のみ再計算）
         ├── ui_mode / picker_entries / picker_selected  ソース選択オーバーレイの状態
         ├── name_input: String               プレイリスト名入力バッファ（NameInput モード時）
@@ -139,8 +140,8 @@ ui::tui::run()
               │           ├── Backspace → name_input.pop()
               │           ├── Enter  → name_input が空: set_error() / 空でない: save_playlist() → ui_mode = Normal
               │           └── Esc    → ui_mode = Normal（保存しない）
-              ├── 選択変更検知 → marquee_offset / tick リセット
-              ├── 5フレームごと → marquee_offset += 1
+              ├── 選択変更検知 → marquee_cache.reset_offset() / tick リセット
+              ├── 5フレームごと → marquee_cache.offset += 1
               └── is_playback_settled() && rodio::Sink::empty()（再生バッファ空 = トラック完了）
                     ├── ※ is_playback_settled(): load_and_play 直後 500ms は is_empty() 誤検知を防ぐ
                     ├── clear_messages()
@@ -161,10 +162,13 @@ ui::tui::run()
 
 ### マーキースクロール実装
 
+描画は `build_col_table` → `marquee_from_table` の2段階で行い、`MarqueeCache` が col_table を文字列ごとにキャッシュする。
+
 ```
-marquee_slice(s: &str, offset: usize, max_width: usize) -> String
-  ├── col_table: Vec<(累積開始列, char, 表示幅)>  // UnicodeWidthChar::width() で各文字の表示幅を計算
-  ├── total_disp = Σ 表示幅          // 文字列全体の表示幅（列数）
+build_col_table(s) -> (Vec<(累積開始列, char, 表示幅)>, total_disp)
+  └── UnicodeWidthChar::width() で各文字の表示幅を計算し、累積列位置テーブルを構築
+
+marquee_from_table(col_table, total_disp, offset, max_width) -> String
   ├── loop_disp = total_disp + 2     // ループ幅 = 表示幅 + 2列の空白ギャップ
   ├── start_col = offset % loop_disp // offset は表示列単位（1増加 = 1列スクロール）
   └── while out_width < max_width:
@@ -175,6 +179,11 @@ marquee_slice(s: &str, offset: usize, max_width: usize) -> String
                 col を c_start + w（次の文字の先頭）へ進める
         ※ offset を表示列ベースにすることで CJK 全角文字（1char = 2列）でも
           ASCII と同じ速度でスクロールする（旧実装: chars.len() ベースで 2 倍速になっていた）
+
+MarqueeCache::render(s, max_width) -> String
+  ├── HashMap<String, ColTable> に s のテーブルをキャッシュ
+  ├── 同一文字列の 2 フレーム目以降は build_col_table をスキップ
+  └── ソース切り替え時に clear() でキャッシュ全体を解放
 ```
 
 ### タイトル列・アーティスト列の動的幅
