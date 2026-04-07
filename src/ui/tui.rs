@@ -97,6 +97,7 @@ fn event_loop<B: ratatui::backend::Backend>(
     let mut marquee_tick: u32 = 0;
     let mut marquee_offset: usize = 0;
     let mut last_selected = state.selected;
+    let mut marquee_cache = MarqueeCache::new();
 
     // プレイリスト変更時のみ再計算するバッジキャッシュ
     let mut playlist_badge_map = state.playlist_badge_map();
@@ -132,6 +133,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                 marquee_offset,
                 &playlist_badge_map,
                 &picker,
+                &mut marquee_cache,
             )
         })?;
 
@@ -269,6 +271,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                             marquee_offset = 0;
                             marquee_tick = 0;
                             last_selected = 0;
+                            marquee_cache.clear();
                         }
                         ui_mode = UiMode::Normal;
                     }
@@ -538,6 +541,18 @@ fn format_queue_badge(positions: &[usize]) -> String {
     format!("{:<width$}", truncated, width = BADGE_WIDTH)
 }
 
+/// 各文字の (累積開始列, char, 表示幅) テーブルと文字列全体の表示幅を返す。
+fn build_col_table(s: &str) -> (Vec<(usize, char, usize)>, usize) {
+    let mut col_table: Vec<(usize, char, usize)> = Vec::with_capacity(s.chars().count());
+    let mut acc = 0usize;
+    for ch in s.chars() {
+        let w = UnicodeWidthChar::width(ch).unwrap_or(1).max(1);
+        col_table.push((acc, ch, w));
+        acc += w;
+    }
+    (col_table, acc)
+}
+
 /// 文字列を表示幅ベースでスクロールし、max_width 幅に収めて返す。
 ///
 /// `offset` は表示列単位（1 増加 = 1 列スクロール）。
@@ -545,24 +560,23 @@ fn format_queue_badge(positions: &[usize]) -> String {
 /// CJK 全角文字（1 char = 2 列）を含む場合にスクロール速度が 2 倍になっていた。
 /// 本実装は表示幅の合計 + 2 列の空白ギャップでループを計算する。
 fn marquee_slice(s: &str, offset: usize, max_width: usize) -> String {
-    let chars: Vec<char> = s.chars().collect();
-    if chars.is_empty() {
+    if s.is_empty() {
         return " ".repeat(max_width);
     }
+    let (col_table, total_disp) = build_col_table(s);
+    marquee_from_table(&col_table, total_disp, offset, max_width)
+}
 
-    // 各文字の (累積開始列, char, 表示幅) テーブルを構築
-    let mut col_table: Vec<(usize, char, usize)> = Vec::with_capacity(chars.len());
-    let mut acc = 0usize;
-    for &ch in &chars {
-        // UnicodeWidthChar::width は encode_utf8 バッファ不要。unwrap_or(1) で不可視文字も最低 1 列扱い
-        let w = UnicodeWidthChar::width(ch).unwrap_or(1).max(1);
-        col_table.push((acc, ch, w));
-        acc += w;
+fn marquee_from_table(
+    col_table: &[(usize, char, usize)],
+    total_disp: usize,
+    offset: usize,
+    max_width: usize,
+) -> String {
+    if col_table.is_empty() {
+        return " ".repeat(max_width);
     }
-    let total_disp = acc; // 文字列全体の表示幅
     let loop_disp = total_disp + 2; // 末尾 2 列の空白ギャップを含むループ幅
-
-    // offset は表示列オフセット（1 増加 = 1 列スクロール）
     let start_col = offset % loop_disp;
 
     let mut result = String::new();
@@ -610,6 +624,34 @@ fn marquee_slice(s: &str, offset: usize, max_width: usize) -> String {
     result
 }
 
+/// 文字列ごとの col_table をキャッシュし、同一文字列のフレームをまたいだ再計算を省く。
+struct MarqueeCache {
+    entries: HashMap<String, (Vec<(usize, char, usize)>, usize)>,
+}
+
+impl MarqueeCache {
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+        }
+    }
+
+    fn render(&mut self, s: &str, offset: usize, max_width: usize) -> String {
+        if s.is_empty() {
+            return " ".repeat(max_width);
+        }
+        if !self.entries.contains_key(s) {
+            self.entries.insert(s.to_owned(), build_col_table(s));
+        }
+        let (table, total_disp) = self.entries.get(s).unwrap();
+        marquee_from_table(table, *total_disp, offset, max_width)
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+    }
+}
+
 fn draw(
     f: &mut ratatui::Frame,
     state: &AppState,
@@ -618,6 +660,7 @@ fn draw(
     marquee_offset: usize,
     playlist_badge_map: &HashMap<usize, Vec<usize>>,
     picker: &PickerState,
+    marquee_cache: &mut MarqueeCache,
 ) {
     // 3分割レイアウト: トラックリスト / 再生情報 / キーバインド
     let chunks = Layout::default()
@@ -661,12 +704,12 @@ fn draw(
             let (title_str, artist_str) = if i == state.selected {
                 // 選択中: 表示幅を超える場合にマーキー
                 let title_disp = if UnicodeWidthStr::width(t.title.as_str()) > title_width {
-                    marquee_slice(&t.title, marquee_offset, title_width)
+                    marquee_cache.render(&t.title, marquee_offset, title_width)
                 } else {
                     pad_display(&t.title, title_width)
                 };
                 let artist_disp = if UnicodeWidthStr::width(artist) > artist_width {
-                    marquee_slice(artist, marquee_offset, artist_width)
+                    marquee_cache.render(artist, marquee_offset, artist_width)
                 } else {
                     pad_display(artist, artist_width)
                 };
@@ -778,7 +821,7 @@ fn draw(
     );
     let keybinds_inner_width = chunks[2].width.saturating_sub(2) as usize;
     let keybinds_display = if UnicodeWidthStr::width(keybinds_raw.as_str()) > keybinds_inner_width {
-        marquee_slice(&keybinds_raw, marquee_offset, keybinds_inner_width)
+        marquee_cache.render(&keybinds_raw, marquee_offset, keybinds_inner_width)
     } else {
         keybinds_raw
     };
