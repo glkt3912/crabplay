@@ -30,6 +30,7 @@ sink.play();
 - `Sink::is_paused()` / `Sink::empty()` で状態確認
 - `Sink::set_volume(f32)` で音量調整 (0.0〜1.0)
 - `Sink::get_pos() -> Duration` (v0.19+) で再生位置取得 → Now Playing 表示に使用
+- `Sink::try_seek(Duration) -> Result<(), SeekError>` (v0.19+) で任意位置にシーク → `←/→` キー操作に使用
 - `Sink` は内部で `Arc<Controls>` を使い `&self` で全操作が可能 → `Mutex` ラップ不要
 
 **feature フラグ**:
