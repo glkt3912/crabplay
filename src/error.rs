@@ -14,7 +14,7 @@ pub enum AppError {
     #[error("metadata error: {path}: {message}")]
     Metadata { path: String, message: String },
 
-    /// ディレクトリスキャン失敗。
+    /// ディレクトリスキャン失敗（将来の拡張用として定義。現在は未使用）。
     #[error("scan error: {0}")]
     Scan(String),
 

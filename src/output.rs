@@ -1,11 +1,15 @@
 use crate::error::AppError;
 use crate::models::TrackInfo;
 
+/// `--list` モードでのトラック出力フォーマッタ。
 pub trait OutputFormatter {
+    /// トラックを文字列にフォーマットする。
     fn format_track(&self, track: &TrackInfo) -> Result<String, AppError>;
+    /// このフォーマッタの識別名を返す（`"text"` / `"json"` 等）。
     fn format_name(&self) -> &'static str;
 }
 
+/// `[Artist] Title (M:SS)` 形式でテキスト出力するフォーマッタ。
 pub struct TextFormatter;
 
 impl OutputFormatter for TextFormatter {
@@ -28,6 +32,7 @@ impl OutputFormatter for TextFormatter {
     }
 }
 
+/// JSON 形式（`serde_json::to_string_pretty`）でトラックを出力するフォーマッタ。
 pub struct JsonFormatter;
 
 impl OutputFormatter for JsonFormatter {
@@ -41,6 +46,8 @@ impl OutputFormatter for JsonFormatter {
     }
 }
 
+/// フォーマット名から対応する [`OutputFormatter`] を生成する。
+/// 未知のフォーマット名は `TextFormatter` にフォールバックする。
 pub fn make_formatter(format: &str) -> Box<dyn OutputFormatter> {
     match format {
         "json" => Box::new(JsonFormatter),

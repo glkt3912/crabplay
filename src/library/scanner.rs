@@ -4,6 +4,9 @@ use walkdir::WalkDir;
 
 use crate::error::AppError;
 
+/// `dir` 以下を再帰的にスキャンし、MP3 / FLAC ファイルのパス一覧を返す。
+///
+/// シンボリックリンクをたどる。対象ディレクトリが存在しない場合は空の `Vec` を返す。
 pub fn scan_directory(dir: &Path) -> Result<Vec<PathBuf>, AppError> {
     let supported = ["mp3", "flac"];
     let files = WalkDir::new(dir)
