@@ -272,3 +272,25 @@ pub struct TrackInfo {
 // JSON 出力
 serde_json::to_string_pretty(track)?
 ```
+
+---
+
+## toml (v0.8)
+
+**役割**: アプリ設定（`~/.config/crabplay/config.toml`）の読み書き。
+
+**使用箇所**: `src/config.rs`
+
+```rust
+// 読み込み
+let config: Config = toml::from_str(&std::fs::read_to_string(path)?)?;
+
+// 書き出し
+std::fs::write(path, toml::to_string(&config)?)?;
+```
+
+**覚えておくべきポイント**:
+
+- `serde` の `Deserialize` / `Serialize` derive と組み合わせて使う
+- `toml::from_str` はパース失敗時にエラーを返す → `Config::load()` では `.ok().unwrap_or_default()` でフォールバック
+- `toml::to_string` は構造体のフィールドのみをシリアライズする（未知のフィールドは保持されない）

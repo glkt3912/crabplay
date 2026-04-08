@@ -15,6 +15,7 @@ lib.rs (モジュール宣言)
   ├── pub mod app                ← AppState / PlayerState / RepeatMode
   ├── pub mod audio              ← Player (rodio)
   ├── pub mod cli                ← Args (clap)
+  ├── pub mod config             ← Config (config.toml 永続化) / xdg_config_base()
   ├── pub mod error              ← AppError (thiserror) ← 他モジュールが参照
   ├── pub mod library            ← scanner / metadata
   ├── pub mod models             ← TrackInfo (serde)
@@ -161,7 +162,7 @@ ui::tui::run()
   - タイトル列・アーティスト列の幅は固定値ではなく、`chunks[0].width` からターミナル幅を取得して動的に計算（詳細は後述）
 - **Now Playing** (中段 `Constraint::Length(3)`): 再生状態・曲名・アーティスト・経過時間 / 合計時間。`info_msg` があれば緑色、`last_error` があれば赤色で優先表示。
 - **キーバインド** (下段 `Constraint::Length(3)`): 現在の `repeat` モードをリアルタイム表示する動的文字列。端末幅が狭くて文字列が収まらない場合はマーキースクロール。配色 `Color::LightCyan`。
-- **ソース選択オーバーレイ** (`UiMode::SourcePicker` 時のみ): `o` キーで開く中央ポップアップ。`centered_rect(70%, 60%)` で算出した領域を `Clear` でクリアしてから `draw_source_picker()` で描画。先頭にディレクトリエントリ、以降に保存済みプレイリスト（mtime 降順・全件）を `List` で表示。ボーダー `Color::Yellow`、選択行 `bg(DarkGray) + BOLD`。`d` キーで `[PL]` エントリを削除できる。
+- **ソース選択オーバーレイ** (`UiMode::SourcePicker` 時のみ): `o` キーで開く中央ポップアップ。`centered_rect(70%, 60%)` で算出した領域を `Clear` でクリアしてから `draw_source_picker()` で描画。`[Dir]`（現在のソースディレクトリ）→ `[Recent]`（最近使ったディレクトリ、最大10件・`config.toml` から読み込み）→ `[PL]`（保存済みプレイリスト、mtime 降順・全件）の順に `List` で表示。ボーダー `Color::Yellow`、選択行 `bg(DarkGray) + BOLD`。`d` キーで `[PL]` エントリを削除できる。ディレクトリ系エントリのロード成功時に `~/.config/crabplay/config.toml` を更新する。
 - **名前入力オーバーレイ** (`UiMode::NameInput` 時のみ): `s` キーで開く小型ポップアップ。`centered_rect(60%, 20%)` の領域にテキスト入力フィールドを表示。ボーダー `Color::Cyan`。Enter で保存、Esc でキャンセル。
 
 ### マーキースクロール実装
