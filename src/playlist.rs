@@ -52,11 +52,9 @@ impl Playlist {
 
     /// デフォルト保存先。XDG_CONFIG_HOME → HOME/.config → カレントディレクトリの順でフォールバック。
     pub fn default_dir() -> PathBuf {
-        let base = std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-            .unwrap_or_else(|| PathBuf::from("."));
-        base.join("crabplay").join("playlists")
+        crate::config::xdg_config_base()
+            .join("crabplay")
+            .join("playlists")
     }
 }
 
