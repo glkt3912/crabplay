@@ -6,6 +6,14 @@ use serde::{Deserialize, Serialize};
 /// 最大保持件数。
 const MAX_RECENT: usize = 10;
 
+/// `XDG_CONFIG_HOME` → `HOME/.config` → `.` の優先順で XDG 設定ベースディレクトリを返す。
+pub fn xdg_config_base() -> PathBuf {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
 /// `~/.config/crabplay/config.toml` に保存するアプリ設定。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
@@ -41,13 +49,9 @@ impl Config {
         self.recent_dirs.truncate(MAX_RECENT);
     }
 
-    /// デフォルト設定ファイルパス。`XDG_CONFIG_HOME` → `HOME/.config` → `.` の順でフォールバック。
+    /// デフォルト設定ファイルパス。
     pub fn default_path() -> PathBuf {
-        let base = std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-            .unwrap_or_else(|| PathBuf::from("."));
-        base.join("crabplay").join("config.toml")
+        xdg_config_base().join("crabplay").join("config.toml")
     }
 }
 
