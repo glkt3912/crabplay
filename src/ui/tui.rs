@@ -23,6 +23,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::{AppState, PlayerState};
 use crate::audio::player::Player;
+use crate::config::Config;
 use crate::library::{metadata::read_metadata, scanner::scan_directory};
 use crate::playlist::Playlist;
 
@@ -36,14 +37,24 @@ enum UiMode {
 #[derive(Debug, Clone)]
 enum SourceEntry {
     Directory(PathBuf),
+    RecentDir(PathBuf),
     Playlist { path: PathBuf, name: String },
 }
 
 impl SourceEntry {
     fn label(&self) -> String {
         match self {
-            SourceEntry::Directory(p) => format!("[Dir] {}", p.display()),
-            SourceEntry::Playlist { name, .. } => format!("[PL]  {}", name),
+            SourceEntry::Directory(p) => format!("[Dir]    {}", p.display()),
+            SourceEntry::RecentDir(p) => format!("[Recent] {}", p.display()),
+            SourceEntry::Playlist { name, .. } => format!("[PL]     {}", name),
+        }
+    }
+
+    /// ディレクトリ系エントリならそのパスを返す（履歴記録に使用）。
+    fn loaded_dir(&self) -> Option<PathBuf> {
+        match self {
+            SourceEntry::Directory(p) | SourceEntry::RecentDir(p) => Some(p.clone()),
+            SourceEntry::Playlist { .. } => None,
         }
     }
 }
@@ -92,6 +103,11 @@ fn event_loop<B: ratatui::backend::Backend>(
 ) -> Result<()> {
     let mut list_state = ListState::default();
     list_state.select(Some(state.selected));
+
+    // 起動ディレクトリを最近使ったディレクトリ履歴に記録する
+    let mut config = Config::load();
+    config.push_recent_dir(state.source_dir.clone());
+    let _ = config.save();
 
     // マーキー用: フレームカウンタとキャッシュ（offset も内包）
     let mut marquee_tick: u32 = 0;
@@ -225,7 +241,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                         }
                         // ソース選択オーバーレイを開く
                         KeyCode::Char('o') => {
-                            picker_entries = build_source_entries(&state.source_dir);
+                            picker_entries = build_source_entries(&state.source_dir, &config);
                             picker_selected = 0;
                             ui_mode = UiMode::SourcePicker;
                         }
@@ -277,8 +293,14 @@ fn event_loop<B: ratatui::backend::Backend>(
                         }
                     }
                     KeyCode::Enter => {
-                        if let Some(entry) = picker_entries.get(picker_selected).cloned() {
-                            load_source(state, player, &entry);
+                        if let Some(entry) = picker_entries.get(picker_selected).cloned()
+                            && load_source(state, player, &entry)
+                        {
+                            // ディレクトリロード成功時に履歴を更新する
+                            if let Some(dir) = entry.loaded_dir() {
+                                config.push_recent_dir(dir);
+                                let _ = config.save();
+                            }
                             playlist_dirty = true;
                             list_state.select(Some(0));
                             marquee_tick = 0;
@@ -293,7 +315,8 @@ fn event_loop<B: ratatui::backend::Backend>(
                             match std::fs::remove_file(path) {
                                 Ok(_) => {
                                     state.set_info(format!("Deleted '{name}'"));
-                                    picker_entries = build_source_entries(&state.source_dir);
+                                    picker_entries =
+                                        build_source_entries(&state.source_dir, &config);
                                     picker_selected =
                                         picker_selected.min(picker_entries.len().saturating_sub(1));
                                 }
@@ -302,7 +325,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                                 }
                             }
                         }
-                        Some(SourceEntry::Directory(_)) => {
+                        Some(SourceEntry::Directory(_) | SourceEntry::RecentDir(_)) => {
                             state.set_error("Cannot delete directory entry".to_string());
                         }
                         None => {}
@@ -395,8 +418,15 @@ fn save_playlist(state: &mut AppState, name: &str) {
 }
 
 /// `o` キー押下時にソース一覧を構築する。毎回呼ぶことで常に最新の状態を反映する。
-fn build_source_entries(source_dir: &std::path::Path) -> Vec<SourceEntry> {
+fn build_source_entries(source_dir: &std::path::Path, config: &Config) -> Vec<SourceEntry> {
     let mut entries = vec![SourceEntry::Directory(source_dir.to_path_buf())];
+
+    // 最近使ったディレクトリ（現在の source_dir は除く）
+    for dir in &config.recent_dirs {
+        if dir.as_path() != source_dir {
+            entries.push(SourceEntry::RecentDir(dir.clone()));
+        }
+    }
 
     let pl_dir = Playlist::default_dir();
     if let Ok(read_dir) = std::fs::read_dir(&pl_dir) {
@@ -434,15 +464,16 @@ fn build_source_entries(source_dir: &std::path::Path) -> Vec<SourceEntry> {
     entries
 }
 
-/// 選択されたソースをロードし、トラック一覧を差し替える。
+/// 選択されたソースをロードし、トラック一覧を差し替える。成功時に `true` を返す。
 /// player.stop() はこの関数内で呼ぶ。replace_tracks の後に set_info で通知する。
-fn load_source(state: &mut AppState, player: &Player, entry: &SourceEntry) {
+fn load_source(state: &mut AppState, player: &Player, entry: &SourceEntry) -> bool {
     player.stop();
 
     match entry {
-        SourceEntry::Directory(dir) => match scan_directory(dir) {
+        SourceEntry::Directory(dir) | SourceEntry::RecentDir(dir) => match scan_directory(dir) {
             Err(e) => {
                 state.set_error(format!("Scan failed: {e}"));
+                false
             }
             Ok(paths) => {
                 let mut skip = 0usize;
@@ -458,7 +489,7 @@ fn load_source(state: &mut AppState, player: &Player, entry: &SourceEntry) {
                     .collect();
                 if tracks.is_empty() {
                     state.set_error(format!("No tracks found in '{}'", dir.display()));
-                    return;
+                    return false;
                 }
                 state.replace_tracks(tracks);
                 if skip > 0 {
@@ -469,11 +500,13 @@ fn load_source(state: &mut AppState, player: &Player, entry: &SourceEntry) {
                 } else {
                     state.set_info("Source loaded (playlist cleared)".to_string());
                 }
+                true
             }
         },
         SourceEntry::Playlist { path, .. } => match Playlist::load(path) {
             Err(e) => {
                 state.set_error(format!("Failed to load playlist: {e}"));
+                false
             }
             Ok(pl) => {
                 let mut skip = 0usize;
@@ -496,7 +529,7 @@ fn load_source(state: &mut AppState, player: &Player, entry: &SourceEntry) {
                     .collect();
                 if tracks.is_empty() {
                     state.set_error("Playlist is empty or all paths are missing".to_string());
-                    return;
+                    return false;
                 }
                 state.replace_tracks(tracks);
                 if skip > 0 {
@@ -504,6 +537,7 @@ fn load_source(state: &mut AppState, player: &Player, entry: &SourceEntry) {
                 } else {
                     state.set_info("Playlist loaded".to_string());
                 }
+                true
             }
         },
     }
