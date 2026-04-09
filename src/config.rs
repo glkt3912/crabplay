@@ -32,6 +32,9 @@ pub struct Config {
     /// リピートモード。起動時に復元される。
     #[serde(default)]
     pub repeat: RepeatMode,
+    /// シャッフル再生。起動時に復元される。
+    #[serde(default)]
+    pub shuffle: bool,
 }
 
 impl Default for Config {
@@ -40,6 +43,7 @@ impl Default for Config {
             recent_dirs: Vec::new(),
             volume: default_volume(),
             repeat: RepeatMode::default(),
+            shuffle: false,
         }
     }
 }

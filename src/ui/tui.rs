@@ -104,11 +104,12 @@ fn event_loop<B: ratatui::backend::Backend>(
     let mut list_state = ListState::default();
     list_state.select(Some(state.selected));
 
-    // config 読み込み・起動ディレクトリを履歴に記録し、前回の音量・リピートモードを復元する
+    // config 読み込み・起動ディレクトリを履歴に記録し、前回の音量・リピートモード・シャッフルを復元する
     let mut config = Config::load();
     config.push_recent_dir(state.source_dir.clone());
     state.volume = config.volume;
     state.repeat = config.repeat;
+    state.shuffle = config.shuffle;
     player.set_volume(state.volume);
     let _ = config.save();
 
@@ -243,6 +244,8 @@ fn event_loop<B: ratatui::backend::Backend>(
                                 "Shuffle: Off"
                             };
                             state.set_info(msg.to_string());
+                            config.shuffle = state.shuffle;
+                            let _ = config.save();
                         }
                         // ソース選択オーバーレイを開く
                         KeyCode::Char('o') => {
