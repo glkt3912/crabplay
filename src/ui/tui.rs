@@ -12,8 +12,8 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
-        Block, Borders, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
-        ScrollbarState,
+        Block, Borders, Gauge, List, ListItem, ListState, Paragraph, Scrollbar,
+        ScrollbarOrientation, ScrollbarState,
     },
 };
 use std::collections::HashMap;
@@ -726,12 +726,12 @@ fn draw(
     picker: &PickerState,
     marquee_cache: &mut MarqueeCache,
 ) {
-    // 3分割レイアウト: トラックリスト / 再生情報 / キーバインド
+    // 3分割レイアウト: トラックリスト / 再生情報（プログレスバー含む）/ キーバインド
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(3),
-            Constraint::Length(3),
+            Constraint::Length(4),
             Constraint::Length(3),
         ])
         .split(f.area());
@@ -835,11 +835,22 @@ fn draw(
         f.render_stateful_widget(scrollbar, chunks[0], &mut scrollbar_state);
     }
 
-    // 再生情報ペイン
-    let (now_playing, np_color) = if let Some(ref msg) = state.info_msg {
-        (format!(" ✓  {msg}"), Color::Green)
+    // 再生情報ペイン（テキスト行 + プログレスバー）
+    let np_block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Now Playing ");
+    let np_inner = np_block.inner(chunks[1]);
+    f.render_widget(np_block, chunks[1]);
+
+    let np_rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Length(1)])
+        .split(np_inner);
+
+    let (now_playing_text, np_color, progress_ratio) = if let Some(ref msg) = state.info_msg {
+        (format!(" ✓  {msg}"), Color::Green, None)
     } else if let Some(ref err) = state.last_error {
-        (format!(" ⚠  {err}"), Color::Red)
+        (format!(" ⚠  {err}"), Color::Red, None)
     } else if let Some(track) = state.current() {
         let status = match state.player_state() {
             PlayerState::Playing => "▶",
@@ -848,33 +859,47 @@ fn draw(
         };
         let pos = player.get_pos();
         let elapsed = format!("{}:{:02}", pos.as_secs() / 60, pos.as_secs() % 60);
-        let total = format!(
+        let total_str = format!(
             "{}:{:02}",
             track.duration_secs / 60,
             track.duration_secs % 60
         );
         let vol = format!("VOL {}%", (state.volume * 100.0).round() as u32);
         let shuf = if state.shuffle { "  SHUF" } else { "" };
+        let ratio = if track.duration_secs > 0 {
+            (pos.as_secs_f64() / track.duration_secs as f64).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         (
             format!(
                 " {} {} — {}  [{} / {}]  {}{}",
-                status, track.title, track.artist, elapsed, total, vol, shuf
+                status, track.title, track.artist, elapsed, total_str, vol, shuf
             ),
             Color::Yellow,
+            Some(ratio),
         )
     } else {
-        (" ■  No track selected".to_string(), Color::DarkGray)
+        (" ■  No track selected".to_string(), Color::DarkGray, None)
     };
 
-    let now_playing_widget = Paragraph::new(now_playing)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Now Playing "),
-        )
-        .style(Style::default().fg(np_color));
+    f.render_widget(
+        Paragraph::new(now_playing_text).style(Style::default().fg(np_color)),
+        np_rows[0],
+    );
 
-    f.render_widget(now_playing_widget, chunks[1]);
+    if let Some(ratio) = progress_ratio {
+        let gauge_color = match state.player_state() {
+            PlayerState::Playing => Color::Yellow,
+            PlayerState::Paused => Color::DarkGray,
+            PlayerState::Stopped => Color::DarkGray,
+        };
+        let gauge = Gauge::default()
+            .gauge_style(Style::default().fg(gauge_color).bg(Color::Black))
+            .ratio(ratio)
+            .label("");
+        f.render_widget(gauge, np_rows[1]);
+    }
 
     // キーバインドペイン（リピートモード表示付き）
     // テキストがターミナル幅を超える場合はマーキースクロール

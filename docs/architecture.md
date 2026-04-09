@@ -157,13 +157,15 @@ ui::tui::run()
                     └── advance() == false → set_stopped()
 ```
 
-描画は `draw()` 関数で 3 ペインに分割:
+描画は `draw()` 関数で 3 ペインに分割（合計高さ: Min(3) + 4 + 3）:
 
 - **トラックリスト** (上部 `Constraint::Min(3)`): `List` ウィジェット + `Scrollbar`。選択行ハイライト。長いタイトル・アーティスト名はマーキースクロール。各行末尾にプレイリスト位置バッジ（後述）を表示。
   - 各行の配色: 曲名 `Color::Green`、アーティスト `Color::Cyan`、時間 `Color::DarkGray`、バッジ `Color::Magenta`
   - タイトルバー: プレイリストが空なら `" crabplay "`、曲が入っていれば `" crabplay  [PL: N] "`
   - タイトル列・アーティスト列の幅は固定値ではなく、`chunks[0].width` からターミナル幅を取得して動的に計算（詳細は後述）
-- **Now Playing** (中段 `Constraint::Length(3)`): 再生状態・曲名・アーティスト・経過時間 / 合計時間。`info_msg` があれば緑色、`last_error` があれば赤色で優先表示。
+- **Now Playing** (中段 `Constraint::Length(4)`): ブロックを先に描画し `block.inner()` で内側領域を取得。内部を縦2行に分割:
+  - 行1: 再生状態・曲名・アーティスト・経過時間 / 合計時間・音量。`info_msg` があれば緑色、`last_error` があれば赤色で優先表示。
+  - 行2: `Gauge` ウィジェットによるプログレスバー（再生中: `Color::Yellow`、一時停止中: `Color::DarkGray`）。`info_msg` / `last_error` 表示中またはトラック未選択時は非表示。
 - **キーバインド** (下段 `Constraint::Length(3)`): 現在の `repeat` モードをリアルタイム表示する動的文字列。端末幅が狭くて文字列が収まらない場合はマーキースクロール。配色 `Color::LightCyan`。
 - **ソース選択オーバーレイ** (`UiMode::SourcePicker` 時のみ): `o` キーで開く中央ポップアップ。`centered_rect(70%, 60%)` で算出した領域を `Clear` でクリアしてから `draw_source_picker()` で描画。`[Dir]`（現在のソースディレクトリ）→ `[Recent]`（最近使ったディレクトリ、最大10件・`config.toml` から読み込み）→ `[PL]`（保存済みプレイリスト、mtime 降順・全件）の順に `List` で表示。ボーダー `Color::Yellow`、選択行 `bg(DarkGray) + BOLD`。`d` キーで `[PL]` エントリを削除できる。ディレクトリ系エントリのロード成功時に `~/.config/crabplay/config.toml` を更新する。
 - **名前入力オーバーレイ** (`UiMode::NameInput` 時のみ): `s` キーで開く小型ポップアップ。`centered_rect(60%, 20%)` の領域にテキスト入力フィールドを表示。ボーダー `Color::Cyan`。Enter で保存、Esc でキャンセル。
