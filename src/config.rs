@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+use crate::app::RepeatMode;
+
 /// 最大保持件数。
 const MAX_RECENT: usize = 10;
 
@@ -14,12 +16,32 @@ pub fn xdg_config_base() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+fn default_volume() -> f32 {
+    1.0
+}
+
 /// `~/.config/crabplay/config.toml` に保存するアプリ設定。
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// 最近使用したディレクトリパス一覧（新しい順、最大 [`MAX_RECENT`] 件）。
     #[serde(default)]
     pub recent_dirs: Vec<PathBuf>,
+    /// 音量（0.0〜2.0）。起動時に復元される。
+    #[serde(default = "default_volume")]
+    pub volume: f32,
+    /// リピートモード。起動時に復元される。
+    #[serde(default)]
+    pub repeat: RepeatMode,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            recent_dirs: Vec::new(),
+            volume: default_volume(),
+            repeat: RepeatMode::default(),
+        }
+    }
 }
 
 impl Config {

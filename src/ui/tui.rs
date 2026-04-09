@@ -104,9 +104,12 @@ fn event_loop<B: ratatui::backend::Backend>(
     let mut list_state = ListState::default();
     list_state.select(Some(state.selected));
 
-    // 起動ディレクトリを最近使ったディレクトリ履歴に記録する
+    // config 読み込み・起動ディレクトリを履歴に記録し、前回の音量・リピートモードを復元する
     let mut config = Config::load();
     config.push_recent_dir(state.source_dir.clone());
+    state.volume = config.volume;
+    state.repeat = config.repeat;
+    player.set_volume(state.volume);
     let _ = config.save();
 
     // マーキー用: フレームカウンタとキャッシュ（offset も内包）
@@ -216,6 +219,8 @@ fn event_loop<B: ratatui::backend::Backend>(
                         KeyCode::Char('r') => {
                             state.cycle_repeat();
                             state.set_info(format!("Repeat: {}", state.repeat.label()));
+                            config.repeat = state.repeat;
+                            let _ = config.save();
                         }
                         // プレイリスト名入力オーバーレイを開く
                         KeyCode::Char('s') => {
@@ -268,6 +273,8 @@ fn event_loop<B: ratatui::backend::Backend>(
                                 "Volume: {}%",
                                 (state.volume * 100.0).round() as u32
                             ));
+                            config.volume = state.volume;
+                            let _ = config.save();
                         }
                         KeyCode::Char('-') => {
                             state.volume_down();
@@ -276,6 +283,8 @@ fn event_loop<B: ratatui::backend::Backend>(
                                 "Volume: {}%",
                                 (state.volume * 100.0).round() as u32
                             ));
+                            config.volume = state.volume;
+                            let _ = config.save();
                         }
                         _ => {}
                     }

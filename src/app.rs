@@ -2,12 +2,14 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 use crate::models::TrackInfo;
 
 /// リピート再生モード。`Off` → `All` → `One` → `Off` の順でサイクルする。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum RepeatMode {
+    #[default]
     /// リピートなし。末尾トラックで再生が止まる。
     Off,
     /// 全曲リピート。末尾の次は先頭に戻る。
