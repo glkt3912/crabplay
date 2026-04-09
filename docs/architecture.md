@@ -15,7 +15,7 @@ lib.rs (モジュール宣言)
   ├── pub mod app                ← AppState / PlayerState / RepeatMode
   ├── pub mod audio              ← Player (rodio)
   ├── pub mod cli                ← Args (clap)
-  ├── pub mod config             ← Config (config.toml 永続化) / xdg_config_base()
+  ├── pub mod config             ← Config (recent_dirs / volume / repeat / shuffle を config.toml に永続化) / xdg_config_base()
   ├── pub mod error              ← AppError (thiserror) ← 他モジュールが参照
   ├── pub mod library            ← scanner / metadata
   ├── pub mod models             ← TrackInfo (serde)
@@ -107,6 +107,7 @@ ui::tui::run()
         ├── MarqueeCache { offset, entries }  マーキースクロール状態（offset）と col_table キャッシュ
         │     └── marquee_tick: u32            スクロール速度制御（5フレームで offset += 1）
         ├── playlist_badge_map / playlist_dirty  バッジキャッシュ（playlist 変更時のみ再計算）
+        ├── Config::load() → volume / repeat / shuffle を AppState に適用 → config.save()
         ├── ui_mode / picker_entries / picker_selected  ソース選択オーバーレイの状態
         ├── name_input: String               プレイリスト名入力バッファ（NameInput モード時）
         ├── 各フレーム先頭で:
@@ -128,9 +129,11 @@ ui::tui::run()
               │     │     ├── a      → playlist_add_selected() → true: playlist_dirty + set_info("Added PL:N")
               │     │     │                                     → false: set_info("Already in playlist")
               │     │     ├── c      → clear_playlist() + playlist_dirty = true → set_info("Playlist cleared")
-              │     │     ├── r      → cycle_repeat() → set_info() でモード表示（3秒）
+              │     │     ├── r      → cycle_repeat() → set_info() でモード表示（3秒）→ config.repeat 更新・save()
               │     │     ├── s      → playlist_is_empty() → true: set_error()
               │     │     │           → false: name_input.clear() + ui_mode = NameInput
+              │     │     ├── z      → toggle_shuffle() → set_info() → config.shuffle 更新・save()
+              │     │     ├── +/-   → volume_up/down() → player.set_volume() → config.volume 更新・save()
               │     │     ├── o      → build_source_entries() → ui_mode = SourcePicker
               │     │     └── q      → Player::stop() → break
               │     ├── UiMode::SourcePicker
