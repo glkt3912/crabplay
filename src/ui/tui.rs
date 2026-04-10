@@ -148,9 +148,13 @@ fn event_loop<B: ratatui::backend::Backend>(
             playlist_dirty = false;
         }
 
-        // Search モード中は list_state を検索カーソルに同期する
+        // Search モード中は list_state を検索カーソルに同期する（0件時は選択なし）
         if ui_mode == UiMode::Search {
-            list_state.select(Some(search_cursor));
+            if search_indices.is_empty() {
+                list_state.select(None);
+            } else {
+                list_state.select(Some(search_cursor));
+            }
         } else {
             list_state.select(Some(state.selected));
         }
@@ -415,16 +419,22 @@ fn event_loop<B: ratatui::backend::Backend>(
                     }
                     KeyCode::Up => {
                         search_cursor = search_cursor.saturating_sub(1);
+                        list_state.select(Some(search_cursor));
                     }
                     KeyCode::Down => {
                         if search_cursor + 1 < search_indices.len() {
                             search_cursor += 1;
                         }
+                        list_state.select(Some(search_cursor));
                     }
                     KeyCode::Backspace => {
                         search_query.pop();
                         search_indices = filter_tracks(&state.tracks, &search_query);
-                        search_cursor = search_cursor.min(search_indices.len().saturating_sub(1));
+                        if search_indices.is_empty() {
+                            search_cursor = 0;
+                        } else {
+                            search_cursor = search_cursor.min(search_indices.len() - 1);
+                        }
                     }
                     KeyCode::Char(c) => {
                         search_query.push(c);
@@ -833,13 +843,12 @@ fn draw(
 
     // Search モード中はフィルタ済みインデックスのみ表示、それ以外は全件
     let is_search = picker.mode == UiMode::Search;
-    let display_indices: &[usize];
-    let all_indices: Vec<usize>;
-    if is_search {
-        display_indices = picker.search_indices;
+    let owned_indices: Vec<usize>;
+    let display_indices: &[usize] = if is_search {
+        picker.search_indices
     } else {
-        all_indices = (0..state.tracks.len()).collect();
-        display_indices = &all_indices;
+        owned_indices = (0..state.tracks.len()).collect();
+        &owned_indices
     };
     // マーキー対象の全体インデックス（Search 中はカーソル位置のトラック）
     let marquee_track_idx = if is_search {
