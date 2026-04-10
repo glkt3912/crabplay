@@ -32,6 +32,7 @@ enum UiMode {
     Normal,
     SourcePicker,
     NameInput,
+    Search,
 }
 
 #[derive(Debug, Clone)]
@@ -59,13 +60,19 @@ impl SourceEntry {
     }
 }
 
-/// オーバーレイの描画用状態。`draw()` の引数を減らすためにまとめる。
+/// オーバーレイ・検索の描画用状態。`draw()` の引数を減らすためにまとめる。
 struct PickerState<'a> {
     mode: UiMode,
     entries: &'a [SourceEntry],
     selected: usize,
     /// NameInput モード時の入力バッファ
     name_input: &'a str,
+    /// Search モード時のクエリ文字列
+    search_query: &'a str,
+    /// Search モード時のフィルタ済みトラックインデックス列
+    search_indices: &'a [usize],
+    /// Search モード時のカーソル位置（フィルタ済みリスト内）
+    search_cursor: usize,
 }
 
 /// パニック時も含めてターミナルを必ず復元するガード型。
@@ -128,6 +135,10 @@ fn event_loop<B: ratatui::backend::Backend>(
     let mut picker_selected: usize = 0;
     // プレイリスト名入力バッファ
     let mut name_input = String::new();
+    // インクリメンタル検索の状態
+    let mut search_query = String::new();
+    let mut search_indices: Vec<usize> = Vec::new();
+    let mut search_cursor: usize = 0;
 
     loop {
         state.tick_timeouts();
@@ -137,11 +148,21 @@ fn event_loop<B: ratatui::backend::Backend>(
             playlist_dirty = false;
         }
 
+        // Search モード中は list_state を検索カーソルに同期する
+        if ui_mode == UiMode::Search {
+            list_state.select(Some(search_cursor));
+        } else {
+            list_state.select(Some(state.selected));
+        }
+
         let picker = PickerState {
             mode: ui_mode,
             entries: &picker_entries,
             selected: picker_selected,
             name_input: &name_input,
+            search_query: &search_query,
+            search_indices: &search_indices,
+            search_cursor,
         };
         terminal.draw(|f| {
             draw(
@@ -246,6 +267,15 @@ fn event_loop<B: ratatui::backend::Backend>(
                             state.set_info(msg.to_string());
                             config.shuffle = state.shuffle;
                             let _ = config.save();
+                        }
+                        // インクリメンタル検索を開く
+                        KeyCode::Char('/') => {
+                            search_query.clear();
+                            search_indices = (0..state.tracks.len()).collect();
+                            search_cursor = 0;
+                            marquee_cache.reset_offset();
+                            marquee_tick = 0;
+                            ui_mode = UiMode::Search;
                         }
                         // ソース選択オーバーレイを開く
                         KeyCode::Char('o') => {
@@ -363,6 +393,43 @@ fn event_loop<B: ratatui::backend::Backend>(
                         if !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') =>
                     {
                         name_input.push(c);
+                    }
+                    _ => {}
+                },
+                UiMode::Search => match key.code {
+                    KeyCode::Esc => {
+                        ui_mode = UiMode::Normal;
+                        list_state.select(Some(state.selected));
+                        marquee_cache.reset_offset();
+                        marquee_tick = 0;
+                    }
+                    KeyCode::Enter => {
+                        if let Some(&idx) = search_indices.get(search_cursor) {
+                            state.selected = idx;
+                        }
+                        list_state.select(Some(state.selected));
+                        last_selected = state.selected;
+                        ui_mode = UiMode::Normal;
+                        marquee_cache.reset_offset();
+                        marquee_tick = 0;
+                    }
+                    KeyCode::Up => {
+                        search_cursor = search_cursor.saturating_sub(1);
+                    }
+                    KeyCode::Down => {
+                        if search_cursor + 1 < search_indices.len() {
+                            search_cursor += 1;
+                        }
+                    }
+                    KeyCode::Backspace => {
+                        search_query.pop();
+                        search_indices = filter_tracks(&state.tracks, &search_query);
+                        search_cursor = search_cursor.min(search_indices.len().saturating_sub(1));
+                    }
+                    KeyCode::Char(c) => {
+                        search_query.push(c);
+                        search_indices = filter_tracks(&state.tracks, &search_query);
+                        search_cursor = 0;
                     }
                     _ => {}
                 },
@@ -558,6 +625,24 @@ fn load_source(state: &mut AppState, player: &Player, entry: &SourceEntry) -> bo
 const BADGE_WIDTH: usize = 6;
 const SEEK_OFFSET: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// `query` にマッチするトラックのインデックス列を返す。
+/// タイトルまたはアーティストに対して大文字小文字を無視した部分一致で検索する。
+/// `query` が空の場合は全インデックスを返す。
+fn filter_tracks(tracks: &[crate::models::TrackInfo], query: &str) -> Vec<usize> {
+    if query.is_empty() {
+        return (0..tracks.len()).collect();
+    }
+    let q = query.to_lowercase();
+    tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| {
+            t.title.to_lowercase().contains(&q) || t.artist.to_lowercase().contains(&q)
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
 /// 文字列を `width` 表示列に合わせてパディング（右揃えスペース）または切り詰めする。
 ///
 /// Rust の `format!("{:<N}", s)` は char 単位でパディングするため CJK 全角文字（1 char = 2 列）
@@ -746,12 +831,28 @@ fn draw(
     let title_width = (available * 62 / 100).max(TITLE_MIN);
     let artist_width = available.saturating_sub(title_width).max(ARTIST_MIN);
 
+    // Search モード中はフィルタ済みインデックスのみ表示、それ以外は全件
+    let is_search = picker.mode == UiMode::Search;
+    let display_indices: &[usize];
+    let all_indices: Vec<usize>;
+    if is_search {
+        display_indices = picker.search_indices;
+    } else {
+        all_indices = (0..state.tracks.len()).collect();
+        display_indices = &all_indices;
+    };
+    // マーキー対象の全体インデックス（Search 中はカーソル位置のトラック）
+    let marquee_track_idx = if is_search {
+        picker.search_indices.get(picker.search_cursor).copied()
+    } else {
+        Some(state.selected)
+    };
+
     // トラックリスト
-    let items: Vec<ListItem> = state
-        .tracks
+    let items: Vec<ListItem> = display_indices
         .iter()
-        .enumerate()
-        .map(|(i, t)| {
+        .map(|&i| {
+            let t = &state.tracks[i];
             let mins = t.duration_secs / 60;
             let secs = t.duration_secs % 60;
             let artist = if t.artist.is_empty() {
@@ -765,8 +866,8 @@ fn draw(
                 "  "
             };
 
-            let (title_str, artist_str) = if i == state.selected {
-                // 選択中: 表示幅を超える場合にマーキー
+            let (title_str, artist_str) = if marquee_track_idx == Some(i) {
+                // カーソル位置: 表示幅を超える場合にマーキー
                 let title_disp = if UnicodeWidthStr::width(t.title.as_str()) > title_width {
                     marquee_cache.render(&t.title, title_width)
                 } else {
@@ -779,7 +880,6 @@ fn draw(
                 };
                 (title_disp, artist_disp)
             } else {
-                // pad_display で表示幅ベースのパディング（CJK 全角文字対応）
                 (
                     pad_display(&t.title, title_width),
                     pad_display(artist, artist_width),
@@ -808,8 +908,14 @@ fn draw(
         })
         .collect();
 
-    // プレイリスト件数をタイトルに表示
-    let list_title = if state.playlist_is_empty() {
+    // タイトルバー: Search 中はマッチ件数を表示
+    let list_title = if is_search {
+        format!(
+            " crabplay  [検索: {}/{}] ",
+            picker.search_indices.len(),
+            state.tracks.len()
+        )
+    } else if state.playlist_is_empty() {
         " crabplay ".to_string()
     } else {
         format!(" crabplay  [PL: {}] ", state.playlist_len())
@@ -825,10 +931,15 @@ fn draw(
 
     f.render_stateful_widget(list, chunks[0], list_state);
 
-    // スクロールバー
-    let total = state.tracks.len();
-    if total > 0 {
-        let mut scrollbar_state = ScrollbarState::new(total).position(state.selected);
+    // スクロールバー（Search 中はフィルタ済み件数で計算）
+    let scroll_total = display_indices.len();
+    let scroll_pos = if is_search {
+        picker.search_cursor
+    } else {
+        state.selected
+    };
+    if scroll_total > 0 {
+        let mut scrollbar_state = ScrollbarState::new(scroll_total).position(scroll_pos);
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(Some("↑"))
             .end_symbol(Some("↓"));
@@ -901,24 +1012,37 @@ fn draw(
         f.render_widget(gauge, np_rows[1]);
     }
 
-    // キーバインドペイン（リピートモード表示付き）
-    // テキストがターミナル幅を超える場合はマーキースクロール
-    let keybinds_raw = format!(
-        " [↑↓] select  [Enter] play  [Space] pause  [←/→] seek ±5s  [n/p] move+play  [a] add to playlist  [c] clear playlist  [r] repeat:{}  [z] shuffle:{}  [s] save playlist  [o] open source  [+/-] volume  [q] quit",
-        state.repeat.label(),
-        if state.shuffle { "On" } else { "Off" }
-    );
-    let keybinds_inner_width = chunks[2].width.saturating_sub(2) as usize;
-    let keybinds_display = if UnicodeWidthStr::width(keybinds_raw.as_str()) > keybinds_inner_width {
-        marquee_cache.render(&keybinds_raw, keybinds_inner_width)
+    // キーバインドペイン（Search モード中は検索バーとして流用）
+    if is_search {
+        let search_display = format!(
+            " / {}█  [{}/{}]  [↑↓] 移動  [Enter] 確定  [Esc] キャンセル",
+            picker.search_query,
+            picker.search_indices.len(),
+            state.tracks.len(),
+        );
+        let search_bar = Paragraph::new(search_display)
+            .block(Block::default().borders(Borders::ALL))
+            .style(Style::default().fg(Color::Yellow));
+        f.render_widget(search_bar, chunks[2]);
     } else {
-        keybinds_raw
-    };
-    let keybinds = Paragraph::new(keybinds_display)
-        .block(Block::default().borders(Borders::ALL))
-        .style(Style::default().fg(Color::LightCyan));
-
-    f.render_widget(keybinds, chunks[2]);
+        // 通常のキーバインド表示（リピートモード・シャッフル状態をリアルタイム表示）
+        let keybinds_raw = format!(
+            " [↑↓] select  [Enter] play  [Space] pause  [←/→] seek ±5s  [n/p] move+play  [/] search  [a] add to playlist  [c] clear playlist  [r] repeat:{}  [z] shuffle:{}  [s] save playlist  [o] open source  [+/-] volume  [q] quit",
+            state.repeat.label(),
+            if state.shuffle { "On" } else { "Off" }
+        );
+        let keybinds_inner_width = chunks[2].width.saturating_sub(2) as usize;
+        let keybinds_display =
+            if UnicodeWidthStr::width(keybinds_raw.as_str()) > keybinds_inner_width {
+                marquee_cache.render(&keybinds_raw, keybinds_inner_width)
+            } else {
+                keybinds_raw
+            };
+        let keybinds = Paragraph::new(keybinds_display)
+            .block(Block::default().borders(Borders::ALL))
+            .style(Style::default().fg(Color::LightCyan));
+        f.render_widget(keybinds, chunks[2]);
+    }
 
     // ソース選択オーバーレイ（SourcePicker モード時のみ）
     if picker.mode == UiMode::SourcePicker {
