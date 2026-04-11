@@ -944,7 +944,7 @@ fn draw(
                 Span::styled(format!(" {}", artist_str), Style::default().fg(Color::Cyan)),
                 Span::styled(
                     format!(" {:>2}:{:02}", mins, secs),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(Color::Reset),
                 ),
                 Span::styled(
                     format!(
@@ -977,7 +977,7 @@ fn draw(
         .block(Block::default().borders(Borders::ALL).title(list_title))
         .highlight_style(
             Style::default()
-                .bg(Color::DarkGray)
+                .add_modifier(Modifier::REVERSED)
                 .add_modifier(Modifier::BOLD),
         );
 
@@ -1043,7 +1043,7 @@ fn draw(
             Some(ratio),
         )
     } else {
-        (" ■  No track selected".to_string(), Color::DarkGray, None)
+        (" ■  No track selected".to_string(), Color::Reset, None)
     };
 
     f.render_widget(
@@ -1054,11 +1054,11 @@ fn draw(
     if let Some(ratio) = progress_ratio {
         let gauge_color = match state.player_state() {
             PlayerState::Playing => Color::Yellow,
-            PlayerState::Paused => Color::DarkGray,
-            PlayerState::Stopped => Color::DarkGray,
+            PlayerState::Paused => Color::Reset,
+            PlayerState::Stopped => Color::Reset,
         };
         let gauge = Gauge::default()
-            .gauge_style(Style::default().fg(gauge_color).bg(Color::Black))
+            .gauge_style(Style::default().fg(gauge_color).bg(Color::Reset))
             .ratio(ratio)
             .label("");
         f.render_widget(gauge, np_rows[1]);
@@ -1156,7 +1156,7 @@ fn draw_source_picker(f: &mut ratatui::Frame, entries: &[SourceEntry], selected:
         )
         .highlight_style(
             Style::default()
-                .bg(Color::DarkGray)
+                .add_modifier(Modifier::REVERSED)
                 .add_modifier(Modifier::BOLD),
         );
 
@@ -1178,7 +1178,7 @@ fn draw_name_input(f: &mut ratatui::Frame, name_input: &str) {
                 .title(" Save Playlist  [Enter] save  [Esc] cancel ")
                 .border_style(Style::default().fg(Color::Cyan)),
         )
-        .style(Style::default().fg(Color::White));
+        .style(Style::default().fg(Color::Reset));
 
     f.render_widget(widget, area);
 }
@@ -1319,7 +1319,7 @@ fn draw_help_overlay(f: &mut ratatui::Frame, scroll: u16) {
                 .title(" キーバインド一覧  [↑↓] スクロール  [任意のキー] 閉じる ")
                 .border_style(Style::default().fg(Color::Green)),
         )
-        .style(Style::default().fg(Color::White))
+        .style(Style::default().fg(Color::Reset))
         .scroll((scroll, 0));
 
     f.render_widget(widget, area);
