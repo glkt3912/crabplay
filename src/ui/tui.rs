@@ -1452,7 +1452,7 @@ mod tests {
     #[test]
     fn filter_tracks_no_match_returns_empty() {
         let tracks = vec![make_track("Song", "Artist")];
-        assert_eq!(filter_tracks(&tracks, "zzz"), Vec::<usize>::new());
+        assert!(filter_tracks(&tracks, "zzz").is_empty());
     }
 
     #[test]
@@ -1490,6 +1490,7 @@ mod tests {
         let mut terminal = make_terminal(80, 24);
         let entries = vec![
             SourceEntry::Directory(std::path::PathBuf::from("/music")),
+            SourceEntry::RecentDir(std::path::PathBuf::from("/recent")),
             SourceEntry::Playlist {
                 path: std::path::PathBuf::from("/p.json"),
                 name: "MyList".to_string(),
@@ -1504,7 +1505,15 @@ mod tests {
             .map(|c| c.symbol())
             .collect();
         assert!(content.contains("[Dir]"), "content should contain [Dir]");
+        assert!(content.contains("[Recent]"), "content should contain [Recent]");
+        assert!(content.contains("[PL]"), "content should contain [PL]");
         assert!(content.contains("MyList"), "content should contain playlist name");
+    }
+
+    #[test]
+    fn draw_source_picker_empty_entries_no_panic() {
+        let mut terminal = make_terminal(80, 24);
+        terminal.draw(|f| draw_source_picker(f, &[], 0)).unwrap();
     }
 
     #[test]
@@ -1528,9 +1537,20 @@ mod tests {
     }
 
     #[test]
-    fn draw_help_overlay_no_panic() {
+    fn draw_help_overlay_shows_keybinds() {
         let mut terminal = make_terminal(80, 24);
         terminal.draw(|f| draw_help_overlay(f, 0)).unwrap();
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(content.contains("Enter"), "help should show Enter key");
+        assert!(content.contains("Space"), "help should show Space key");
+        // CJK 文字はバッファ上で1セルずつ分割されるため個別に確認する
+        assert!(content.contains("通"), "help should show Normal section header");
     }
 
     #[test]
