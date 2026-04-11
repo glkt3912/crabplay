@@ -74,6 +74,8 @@ struct PickerState<'a> {
     search_indices: &'a [usize],
     /// Search モード時のカーソル位置（フィルタ済みリスト内）
     search_cursor: usize,
+    /// Help モード時のスクロールオフセット
+    help_scroll: u16,
 }
 
 /// パニック時も含めてターミナルを必ず復元するガード型。
@@ -140,6 +142,8 @@ fn event_loop<B: ratatui::backend::Backend>(
     let mut search_query = String::new();
     let mut search_indices: Vec<usize> = Vec::new();
     let mut search_cursor: usize = 0;
+    // ヘルプオーバーレイのスクロールオフセット
+    let mut help_scroll: u16 = 0;
 
     loop {
         state.tick_timeouts();
@@ -168,6 +172,7 @@ fn event_loop<B: ratatui::backend::Backend>(
             search_query: &search_query,
             search_indices: &search_indices,
             search_cursor,
+            help_scroll,
         };
         terminal.draw(|f| {
             draw(
@@ -284,6 +289,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                         }
                         // ヘルプオーバーレイを開く
                         KeyCode::Char('?') => {
+                            help_scroll = 0;
                             ui_mode = UiMode::Help;
                         }
                         // ソース選択オーバーレイを開く
@@ -448,10 +454,19 @@ fn event_loop<B: ratatui::backend::Backend>(
                     }
                     _ => {}
                 },
-                // ヘルプオーバーレイ: 任意のキーで閉じる
-                UiMode::Help => {
-                    ui_mode = UiMode::Normal;
-                }
+                // ヘルプオーバーレイ: ↑/↓ でスクロール、他キーで閉じる
+                UiMode::Help => match key.code {
+                    KeyCode::Up => {
+                        help_scroll = help_scroll.saturating_sub(1);
+                    }
+                    KeyCode::Down => {
+                        help_scroll += 1;
+                    }
+                    _ => {
+                        ui_mode = UiMode::Normal;
+                        help_scroll = 0;
+                    }
+                },
             }
         }
 
@@ -1072,7 +1087,7 @@ fn draw(
     }
     // ヘルプオーバーレイ（Help モード時のみ）
     if picker.mode == UiMode::Help {
-        draw_help_overlay(f);
+        draw_help_overlay(f, picker.help_scroll);
     }
 }
 
@@ -1150,7 +1165,7 @@ fn draw_name_input(f: &mut ratatui::Frame, name_input: &str) {
 }
 
 /// キーバインドヘルプオーバーレイを描画する。
-fn draw_help_overlay(f: &mut ratatui::Frame) {
+fn draw_help_overlay(f: &mut ratatui::Frame, scroll: u16) {
     use ratatui::widgets::Clear;
 
     let area = centered_rect(60, 80, f.area());
@@ -1217,8 +1232,12 @@ fn draw_help_overlay(f: &mut ratatui::Frame) {
             Span::raw("ソースピッカーを開く"),
         ]),
         Line::from(vec![
-            Span::styled("  ? / q       ", Style::default().fg(Color::Cyan)),
-            Span::raw("ヘルプ表示 / 終了"),
+            Span::styled("  ?           ", Style::default().fg(Color::Cyan)),
+            Span::raw("このヘルプを表示"),
+        ]),
+        Line::from(vec![
+            Span::styled("  q           ", Style::default().fg(Color::Cyan)),
+            Span::raw("終了"),
         ]),
         Line::from(""),
         Line::from(Span::styled(
@@ -1278,10 +1297,11 @@ fn draw_help_overlay(f: &mut ratatui::Frame) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" キーバインド一覧  [任意のキー] 閉じる ")
+                .title(" キーバインド一覧  [↑↓] スクロール  [任意のキー] 閉じる ")
                 .border_style(Style::default().fg(Color::Green)),
         )
-        .style(Style::default().fg(Color::White));
+        .style(Style::default().fg(Color::White))
+        .scroll((scroll, 0));
 
     f.render_widget(widget, area);
 }
