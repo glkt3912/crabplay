@@ -393,8 +393,8 @@ fn event_loop<B: ratatui::backend::Backend>(
                                     ));
                                     picker_entries =
                                         build_source_entries(&state.source_dir, &config);
-                                    picker_selected = picker_selected
-                                        .min(picker_entries.len().saturating_sub(1));
+                                    picker_selected =
+                                        picker_selected.min(picker_entries.len().saturating_sub(1));
                                 }
                                 Err(e) => {
                                     state.set_error(format!("Save failed: {e}"));
