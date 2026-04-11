@@ -319,17 +319,23 @@ impl AppState {
         }
     }
 
-    /// プレイリストの pos 番目のエントリを1つ前に移動する。
-    pub fn playlist_move_up(&mut self, pos: usize) {
+    /// プレイリストの pos 番目のエントリを1つ前に移動する。移動した場合は true を返す。
+    pub fn playlist_move_up(&mut self, pos: usize) -> bool {
         if pos > 0 && pos < self.playlist.len() {
             self.playlist.swap(pos - 1, pos);
+            true
+        } else {
+            false
         }
     }
 
-    /// プレイリストの pos 番目のエントリを1つ後ろに移動する。
-    pub fn playlist_move_down(&mut self, pos: usize) {
+    /// プレイリストの pos 番目のエントリを1つ後ろに移動する。移動した場合は true を返す。
+    pub fn playlist_move_down(&mut self, pos: usize) -> bool {
         if pos + 1 < self.playlist.len() {
             self.playlist.swap(pos, pos + 1);
+            true
+        } else {
+            false
         }
     }
 
@@ -578,6 +584,61 @@ mod tests {
         state.playlist_move_down(1);
         assert_eq!(state.playlist[0], 0);
         assert_eq!(state.playlist[1], 1);
+    }
+
+    #[test]
+    fn playlist_move_up_out_of_bounds_is_noop() {
+        let mut state = make_state(2);
+        for i in 0..2 {
+            state.selected = i;
+            state.playlist_add_selected();
+        }
+        let moved = state.playlist_move_up(5);
+        assert!(!moved);
+        assert_eq!(state.playlist.len(), 2);
+        assert_eq!(state.playlist[0], 0);
+        assert_eq!(state.playlist[1], 1);
+    }
+
+    #[test]
+    fn playlist_move_down_out_of_bounds_is_noop() {
+        let mut state = make_state(2);
+        for i in 0..2 {
+            state.selected = i;
+            state.playlist_add_selected();
+        }
+        let moved = state.playlist_move_down(5);
+        assert!(!moved);
+        assert_eq!(state.playlist.len(), 2);
+    }
+
+    #[test]
+    fn playlist_move_up_empty_is_noop() {
+        let mut state = make_state(2);
+        let moved = state.playlist_move_up(0);
+        assert!(!moved);
+        assert!(state.playlist.is_empty());
+    }
+
+    #[test]
+    fn playlist_move_down_empty_is_noop() {
+        let mut state = make_state(2);
+        let moved = state.playlist_move_down(0);
+        assert!(!moved);
+        assert!(state.playlist.is_empty());
+    }
+
+    #[test]
+    fn playlist_move_preserves_len() {
+        let mut state = make_state(3);
+        for i in 0..3 {
+            state.selected = i;
+            state.playlist_add_selected();
+        }
+        state.playlist_move_up(2);
+        assert_eq!(state.playlist.len(), 3);
+        state.playlist_move_down(0);
+        assert_eq!(state.playlist.len(), 3);
     }
 
     #[test]
