@@ -1416,4 +1416,134 @@ mod tests {
             );
         }
     }
+
+    // ── filter_tracks ──────────────────────────────────────────────
+
+    fn make_track(title: &str, artist: &str) -> crate::models::TrackInfo {
+        crate::models::TrackInfo {
+            path: std::path::PathBuf::from("/dummy"),
+            title: title.to_string(),
+            artist: artist.to_string(),
+            album: String::new(),
+            duration_secs: 0,
+        }
+    }
+
+    #[test]
+    fn filter_tracks_empty_query_returns_all() {
+        let tracks = vec![make_track("Song A", "Artist 1"), make_track("Song B", "Artist 2")];
+        assert_eq!(filter_tracks(&tracks, ""), vec![0, 1]);
+    }
+
+    #[test]
+    fn filter_tracks_matches_title_case_insensitive() {
+        let tracks = vec![make_track("Rock Anthem", "Band"), make_track("Jazz Night", "Trio")];
+        assert_eq!(filter_tracks(&tracks, "rock"), vec![0]);
+        assert_eq!(filter_tracks(&tracks, "JAZZ"), vec![1]);
+    }
+
+    #[test]
+    fn filter_tracks_matches_artist() {
+        let tracks = vec![make_track("Title", "The Beatles"), make_track("Title", "Rolling Stones")];
+        assert_eq!(filter_tracks(&tracks, "beatles"), vec![0]);
+        assert_eq!(filter_tracks(&tracks, "stones"), vec![1]);
+    }
+
+    #[test]
+    fn filter_tracks_no_match_returns_empty() {
+        let tracks = vec![make_track("Song", "Artist")];
+        assert_eq!(filter_tracks(&tracks, "zzz"), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn filter_tracks_matches_both_title_and_artist() {
+        let tracks = vec![
+            make_track("Love Song", "Artist"),
+            make_track("Title", "Love Band"),
+            make_track("Other", "Other"),
+        ];
+        assert_eq!(filter_tracks(&tracks, "love"), vec![0, 1]);
+    }
+
+    // ── TestBackend 描画テスト ──────────────────────────────────────
+
+    fn make_terminal(width: u16, height: u16) -> ratatui::Terminal<ratatui::backend::TestBackend> {
+        ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap()
+    }
+
+    #[test]
+    fn draw_source_picker_no_panic() {
+        let mut terminal = make_terminal(80, 24);
+        let entries = vec![
+            SourceEntry::Directory(std::path::PathBuf::from("/music")),
+            SourceEntry::RecentDir(std::path::PathBuf::from("/recent")),
+            SourceEntry::Playlist {
+                path: std::path::PathBuf::from("/playlists/test.json"),
+                name: "test".to_string(),
+            },
+        ];
+        terminal.draw(|f| draw_source_picker(f, &entries, 0)).unwrap();
+    }
+
+    #[test]
+    fn draw_source_picker_shows_entry_labels() {
+        let mut terminal = make_terminal(80, 24);
+        let entries = vec![
+            SourceEntry::Directory(std::path::PathBuf::from("/music")),
+            SourceEntry::Playlist {
+                path: std::path::PathBuf::from("/p.json"),
+                name: "MyList".to_string(),
+            },
+        ];
+        terminal.draw(|f| draw_source_picker(f, &entries, 0)).unwrap();
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(content.contains("[Dir]"), "content should contain [Dir]");
+        assert!(content.contains("MyList"), "content should contain playlist name");
+    }
+
+    #[test]
+    fn draw_name_input_no_panic() {
+        let mut terminal = make_terminal(80, 24);
+        terminal.draw(|f| draw_name_input(f, "my playlist")).unwrap();
+    }
+
+    #[test]
+    fn draw_name_input_shows_prompt() {
+        let mut terminal = make_terminal(80, 24);
+        terminal.draw(|f| draw_name_input(f, "rock")).unwrap();
+        let content: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(content.contains("rock"), "input buffer should be visible");
+    }
+
+    #[test]
+    fn draw_help_overlay_no_panic() {
+        let mut terminal = make_terminal(80, 24);
+        terminal.draw(|f| draw_help_overlay(f, 0)).unwrap();
+    }
+
+    #[test]
+    fn draw_help_overlay_scrolled_no_panic() {
+        let mut terminal = make_terminal(80, 24);
+        // 末尾を超えるオフセットを渡してもパニックしないこと
+        terminal.draw(|f| draw_help_overlay(f, 999)).unwrap();
+    }
+
+    #[test]
+    fn draw_help_overlay_small_terminal_no_panic() {
+        // 極端に小さいターミナルでもパニックしないこと
+        let mut terminal = make_terminal(20, 8);
+        terminal.draw(|f| draw_help_overlay(f, 0)).unwrap();
+    }
 }
