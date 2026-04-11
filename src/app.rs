@@ -171,15 +171,9 @@ impl AppState {
         self.tracks = self.original_tracks.clone();
         match self.sort_key {
             SortKey::Default => {}
-            SortKey::Title => self
-                .tracks
-                .sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase())),
-            SortKey::Artist => self
-                .tracks
-                .sort_by(|a, b| a.artist.to_lowercase().cmp(&b.artist.to_lowercase())),
-            SortKey::Album => self
-                .tracks
-                .sort_by(|a, b| a.album.to_lowercase().cmp(&b.album.to_lowercase())),
+            SortKey::Title => self.tracks.sort_by_cached_key(|t| t.title.to_lowercase()),
+            SortKey::Artist => self.tracks.sort_by_cached_key(|t| t.artist.to_lowercase()),
+            SortKey::Album => self.tracks.sort_by_cached_key(|t| t.album.to_lowercase()),
             SortKey::Duration => self.tracks.sort_by_key(|t| t.duration_secs),
         }
 
@@ -625,5 +619,121 @@ mod tests {
         state.repeat = RepeatMode::One;
         assert!(state.advance());
         assert_eq!(state.selected, 2, "RepeatMode::One はシャッフルより優先");
+    }
+
+    /// タイトル・アーティスト・再生時間が異なる3トラックの状態を生成する。
+    fn make_sort_state() -> AppState {
+        let tracks = vec![
+            TrackInfo {
+                path: PathBuf::from("/c.mp3"),
+                title: "Cherry".to_string(),
+                artist: "Zed".to_string(),
+                album: "Zoo".to_string(),
+                duration_secs: 300,
+            },
+            TrackInfo {
+                path: PathBuf::from("/a.mp3"),
+                title: "Apple".to_string(),
+                artist: "Mike".to_string(),
+                album: "Attic".to_string(),
+                duration_secs: 100,
+            },
+            TrackInfo {
+                path: PathBuf::from("/b.mp3"),
+                title: "Banana".to_string(),
+                artist: "Anna".to_string(),
+                album: "Barn".to_string(),
+                duration_secs: 200,
+            },
+        ];
+        AppState::new(tracks, PathBuf::from("."))
+    }
+
+    #[test]
+    fn cycle_sort_title_sorts_alphabetically() {
+        let mut state = make_sort_state();
+        state.cycle_sort(); // Default → Title
+        assert_eq!(state.sort_key, SortKey::Title);
+        assert_eq!(state.tracks[0].title, "Apple");
+        assert_eq!(state.tracks[1].title, "Banana");
+        assert_eq!(state.tracks[2].title, "Cherry");
+    }
+
+    #[test]
+    fn cycle_sort_artist_sorts_alphabetically() {
+        let mut state = make_sort_state();
+        state.cycle_sort(); // Title
+        state.cycle_sort(); // Artist
+        assert_eq!(state.sort_key, SortKey::Artist);
+        assert_eq!(state.tracks[0].artist, "Anna");
+        assert_eq!(state.tracks[1].artist, "Mike");
+        assert_eq!(state.tracks[2].artist, "Zed");
+    }
+
+    #[test]
+    fn cycle_sort_duration_sorts_ascending() {
+        let mut state = make_sort_state();
+        for _ in 0..4 {
+            state.cycle_sort(); // Default → Title → Artist → Album → Duration
+        }
+        assert_eq!(state.sort_key, SortKey::Duration);
+        assert_eq!(state.tracks[0].duration_secs, 100);
+        assert_eq!(state.tracks[1].duration_secs, 200);
+        assert_eq!(state.tracks[2].duration_secs, 300);
+    }
+
+    #[test]
+    fn cycle_sort_default_restores_original_order() {
+        let mut state = make_sort_state();
+        for _ in 0..5 {
+            state.cycle_sort(); // 5回でDefault に戻る
+        }
+        assert_eq!(state.sort_key, SortKey::Default);
+        assert_eq!(state.tracks[0].path, PathBuf::from("/c.mp3"));
+        assert_eq!(state.tracks[1].path, PathBuf::from("/a.mp3"));
+        assert_eq!(state.tracks[2].path, PathBuf::from("/b.mp3"));
+    }
+
+    #[test]
+    fn cycle_sort_remaps_selected_index() {
+        let mut state = make_sort_state();
+        // 初期状態: selected = 0 → Cherry (/c.mp3)
+        assert_eq!(state.selected, 0);
+        state.cycle_sort(); // Title ソート後: Cherry は index 2 になる
+        assert_eq!(state.tracks[state.selected].path, PathBuf::from("/c.mp3"));
+    }
+
+    #[test]
+    fn cycle_sort_remaps_playing_index() {
+        let mut state = make_sort_state();
+        state.selected = 0; // Cherry
+        state.set_playing();
+        assert_eq!(state.playing_index(), Some(0));
+        state.cycle_sort(); // Title ソート後: Cherry は index 2
+        assert_eq!(
+            state.playing_index(),
+            Some(2),
+            "playing_index がソート後の正しい位置に更新される"
+        );
+    }
+
+    #[test]
+    fn cycle_sort_remaps_playlist_indices() {
+        let mut state = make_sort_state();
+        // Banana (index 2) をプレイリストに追加
+        state.selected = 2;
+        state.playlist_add_selected();
+        state.cycle_sort(); // Title ソート後: Banana は index 1
+        let playlist_tracks = state.playlist_tracks();
+        assert_eq!(playlist_tracks.len(), 1);
+        assert_eq!(playlist_tracks[0].path, PathBuf::from("/b.mp3"));
+    }
+
+    #[test]
+    fn cycle_sort_empty_tracks_no_panic() {
+        let mut state = AppState::new(vec![], PathBuf::from("."));
+        state.cycle_sort(); // パニックしないこと
+        assert_eq!(state.sort_key, SortKey::Title);
+        assert_eq!(state.selected, 0);
     }
 }
