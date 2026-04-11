@@ -34,6 +34,7 @@ enum UiMode {
     NameInput,
     Search,
     Help,
+    QueueViewer,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +77,8 @@ struct PickerState<'a> {
     search_cursor: usize,
     /// Help モード時のスクロールオフセット
     help_scroll: u16,
+    /// QueueViewer モード時の選択カーソル位置
+    queue_selected: usize,
 }
 
 /// パニック時も含めてターミナルを必ず復元するガード型。
@@ -144,6 +147,8 @@ fn event_loop<B: ratatui::backend::Backend>(
     let mut search_cursor: usize = 0;
     // ヘルプオーバーレイのスクロールオフセット
     let mut help_scroll: u16 = 0;
+    // キュービューアーの選択カーソル
+    let mut queue_selected: usize = 0;
 
     loop {
         state.tick_timeouts();
@@ -173,6 +178,7 @@ fn event_loop<B: ratatui::backend::Backend>(
             search_indices: &search_indices,
             search_cursor,
             help_scroll,
+            queue_selected,
         };
         terminal.draw(|f| {
             draw(
@@ -297,6 +303,11 @@ fn event_loop<B: ratatui::backend::Backend>(
                             picker_entries = build_source_entries(&state.source_dir, &config);
                             picker_selected = 0;
                             ui_mode = UiMode::SourcePicker;
+                        }
+                        // キュービューアーを開く
+                        KeyCode::Char('v') => {
+                            queue_selected = 0;
+                            ui_mode = UiMode::QueueViewer;
                         }
                         // シーク（±5秒）
                         KeyCode::Left | KeyCode::Right
@@ -485,6 +496,32 @@ fn event_loop<B: ratatui::backend::Backend>(
                         ui_mode = UiMode::Normal;
                         help_scroll = 0;
                     }
+                },
+                // キュービューアー: ↑/↓ で選択、d で削除、Esc で閉じる
+                UiMode::QueueViewer => match key.code {
+                    KeyCode::Up => {
+                        queue_selected = queue_selected.saturating_sub(1);
+                    }
+                    KeyCode::Down => {
+                        let len = state.playlist_len();
+                        if len > 0 {
+                            queue_selected = (queue_selected + 1).min(len - 1);
+                        }
+                    }
+                    KeyCode::Char('d') => {
+                        let len = state.playlist_len();
+                        if len > 0 {
+                            state.playlist_remove_at(queue_selected);
+                            playlist_dirty = true;
+                            if queue_selected >= state.playlist_len() {
+                                queue_selected = state.playlist_len().saturating_sub(1);
+                            }
+                        }
+                    }
+                    KeyCode::Esc => {
+                        ui_mode = UiMode::Normal;
+                    }
+                    _ => {}
                 },
             }
         }
@@ -1079,7 +1116,7 @@ fn draw(
     } else {
         // 通常のキーバインド表示（リピートモード・シャッフル状態をリアルタイム表示）
         let keybinds_raw = format!(
-            " [↑↓] select  [Enter] play  [Space] pause  [←/→] seek ±5s  [n/p] move+play  [/] search  [a] add to playlist  [c] clear playlist  [r] repeat:{}  [z] shuffle:{}  [s] save playlist  [o] open source  [+/-] volume  [q] quit",
+            " [↑↓] select  [Enter] play  [Space] pause  [←/→] seek ±5s  [n/p] move+play  [/] search  [a] add to playlist  [c] clear playlist  [v] view queue  [r] repeat:{}  [z] shuffle:{}  [s] save playlist  [o] open source  [+/-] volume  [q] quit",
             state.repeat.label(),
             if state.shuffle { "On" } else { "Off" }
         );
@@ -1107,6 +1144,10 @@ fn draw(
     // ヘルプオーバーレイ（Help モード時のみ）
     if picker.mode == UiMode::Help {
         draw_help_overlay(f, picker.help_scroll);
+    }
+    // キュービューアーオーバーレイ（QueueViewer モード時のみ）
+    if picker.mode == UiMode::QueueViewer {
+        draw_queue_viewer(f, state, picker.queue_selected);
     }
 }
 
@@ -1183,6 +1224,68 @@ fn draw_name_input(f: &mut ratatui::Frame, name_input: &str) {
     f.render_widget(widget, area);
 }
 
+/// キュービューアーオーバーレイを描画する。
+fn draw_queue_viewer(f: &mut ratatui::Frame, state: &crate::app::AppState, selected: usize) {
+    use ratatui::widgets::Clear;
+
+    let area = centered_rect(60, 70, f.area());
+    f.render_widget(Clear, area);
+
+    let tracks = state.playlist_tracks();
+
+    let items: Vec<ListItem> = if tracks.is_empty() {
+        vec![ListItem::new(Line::from(Span::styled(
+            " キューは空です",
+            Style::default().fg(Color::Reset),
+        )))]
+    } else {
+        tracks
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let mins = t.duration_secs / 60;
+                let secs = t.duration_secs % 60;
+                ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!(" {:>2}. ", i + 1),
+                        Style::default().fg(Color::Reset),
+                    ),
+                    Span::styled(t.title.clone(), Style::default().fg(Color::Green)),
+                    Span::styled(format!(" — {}", t.artist), Style::default().fg(Color::Cyan)),
+                    Span::styled(
+                        format!(" {:>2}:{:02}", mins, secs),
+                        Style::default().fg(Color::Reset),
+                    ),
+                ]))
+            })
+            .collect()
+    };
+
+    let mut list_state = ListState::default();
+    if !tracks.is_empty() {
+        list_state.select(Some(selected));
+    }
+
+    let title = format!(
+        " Queue  {} tracks  [↑↓] move  [d] remove  [Esc] close ",
+        tracks.len()
+    );
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .border_style(Style::default().fg(Color::Magenta)),
+        )
+        .highlight_style(
+            Style::default()
+                .add_modifier(Modifier::REVERSED)
+                .add_modifier(Modifier::BOLD),
+        );
+
+    f.render_stateful_widget(list, area, &mut list_state);
+}
+
 /// キーバインドヘルプオーバーレイを描画する。
 fn draw_help_overlay(f: &mut ratatui::Frame, scroll: u16) {
     use ratatui::widgets::Clear;
@@ -1241,6 +1344,10 @@ fn draw_help_overlay(f: &mut ratatui::Frame, scroll: u16) {
         Line::from(vec![
             Span::styled("  c           ", Style::default().fg(Color::Cyan)),
             Span::raw("プレイリストをクリア"),
+        ]),
+        Line::from(vec![
+            Span::styled("  v           ", Style::default().fg(Color::Cyan)),
+            Span::raw("キュービューアーを開く"),
         ]),
         Line::from(vec![
             Span::styled("  s           ", Style::default().fg(Color::Cyan)),

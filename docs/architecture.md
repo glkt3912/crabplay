@@ -129,6 +129,7 @@ ui::tui::run()
               │     │     ├── a      → playlist_add_selected() → true: playlist_dirty + set_info("Added PL:N")
               │     │     │                                     → false: set_info("Already in playlist")
               │     │     ├── c      → clear_playlist() + playlist_dirty = true → set_info("Playlist cleared")
+              │     │     ├── v      → queue_selected = 0 + ui_mode = QueueViewer
               │     │     ├── r      → cycle_repeat() → set_info() でモード表示（3秒）→ config.repeat 更新・save()
               │     │     ├── s      → playlist_is_empty() → true: set_error()
               │     │     │           → false: name_input.clear() + ui_mode = NameInput
@@ -155,6 +156,10 @@ ui::tui::run()
               │     ├── UiMode::Help
               │     │     ├── ↑/↓   → help_scroll をスクロール（↑: saturating_sub(1)、↓: +1）
               │     │     └── その他 → ui_mode = Normal + help_scroll = 0
+              │     ├── UiMode::QueueViewer
+              │     │     ├── ↑/↓   → queue_selected を移動（空なら無視）
+              │     │     ├── d      → playlist_remove_at(queue_selected) → playlist_dirty + queue_selected クランプ
+              │     │     └── Esc    → ui_mode = Normal
               │     └── UiMode::NameInput
               │           ├── 印字可能文字（/ \ : * ? " < > | 以外）→ name_input に追加（最大200文字）
               │           ├── Backspace → name_input.pop()
@@ -183,6 +188,7 @@ ui::tui::run()
 - **ソース選択オーバーレイ** (`UiMode::SourcePicker` 時のみ): `o` キーで開く中央ポップアップ。`centered_rect(70%, 60%)` で算出した領域を `Clear` でクリアしてから `draw_source_picker()` で描画。`[Dir]`（現在のソースディレクトリ）→ `[Recent]`（最近使ったディレクトリ、最大10件・`config.toml` から読み込み）→ `[PL]`（保存済みプレイリスト、mtime 降順・全件）の順に `List` で表示。ボーダー `Color::Yellow`、選択行 `bg(DarkGray) + BOLD`。`d` キーで `[PL]` エントリをディスクから削除、`[Recent]` エントリを `config.recent_dirs` から削除できる（`[Dir]` はエラー）。ディレクトリ系エントリのロード成功時に `~/.config/crabplay/config.toml` を更新する。
 - **名前入力オーバーレイ** (`UiMode::NameInput` 時のみ): `s` キーで開く小型ポップアップ。`centered_rect(60%, 20%)` の領域にテキスト入力フィールドを表示。ボーダー `Color::Cyan`。Enter で保存、Esc でキャンセル。
 - **ヘルプオーバーレイ** (`UiMode::Help` 時のみ): `?` キーで開く中央ポップアップ。`centered_rect(60%, 80%)` の領域を `Clear` でクリアしてから `draw_help_overlay(scroll)` で描画。通常操作・検索モード・ソースピッカー内の3セクションを `Paragraph::scroll` でスクロール可能。ボーダー `Color::Green`。↑/↓ でスクロール、他キーで閉じる。
+- **キュービューアー** (`UiMode::QueueViewer` 時のみ): `v` キーで開く中央ポップアップ。`centered_rect(60%, 70%)` の領域を `Clear` でクリアしてから `draw_queue_viewer()` で描画。`playlist_tracks()` でキュー内容を取得し番号付きで `List` 表示。空の場合は「キューは空です」メッセージを表示。ボーダー `Color::Magenta`、選択行 `REVERSED + BOLD`。`d` で `playlist_remove_at()` を呼び個別削除、Esc で閉じる。
 
 ### マーキースクロール実装
 
@@ -260,6 +266,8 @@ pub struct AppState {
 | `replace_tracks(tracks)` | ソース切り替え時にトラック一覧と全再生状態をリセット。`playlist` もクリア。`player.stop()` は呼び出し側の責務。このメソッド後に `set_info()` を呼ぶと通知メッセージを表示できる |
 | `playlist_add_selected()` | 選択中トラックを `playlist` に追加。重複はスキップ。**追加されたなら `true`、既存なら `false` を返す**（TUI 側で "Already in playlist" を表示するために使用） |
 | `clear_playlist()` | `playlist` を全クリア |
+| `playlist_remove_at(pos)` | `playlist` の pos 番目（0始まり）のエントリを削除。範囲外なら無視 |
+| `playlist_tracks()` | `playlist` に登録されたトラックの `&TrackInfo` スライスを返す（キュービューアー表示用） |
 | `playlist_len()` / `playlist_is_empty()` / `playlist_paths()` | プレイリスト参照（読み取り専用） |
 | `playlist_badge_map()` | トラックインデックス → プレイリスト内位置リストの `HashMap<usize, Vec<usize>>` を O(P) で構築 |
 

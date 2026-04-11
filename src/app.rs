@@ -219,6 +219,21 @@ impl AppState {
             .collect()
     }
 
+    /// プレイリストの pos 番目（0始まり）のエントリを削除する。
+    pub fn playlist_remove_at(&mut self, pos: usize) {
+        if pos < self.playlist.len() {
+            self.playlist.remove(pos);
+        }
+    }
+
+    /// プレイリスト内のトラック一覧を返す（表示用）。
+    pub fn playlist_tracks(&self) -> Vec<&TrackInfo> {
+        self.playlist
+            .iter()
+            .filter_map(|&i| self.tracks.get(i))
+            .collect()
+    }
+
     /// トラックインデックス → プレイリスト内位置リスト（1始まり）の HashMap を返す。
     /// draw() でフレームごとに O(N×P) の走査を避けるため、一度だけ走査して構築する。
     pub fn playlist_badge_map(&self) -> HashMap<usize, Vec<usize>> {
