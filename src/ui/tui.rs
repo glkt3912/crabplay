@@ -1431,20 +1431,29 @@ mod tests {
 
     #[test]
     fn filter_tracks_empty_query_returns_all() {
-        let tracks = vec![make_track("Song A", "Artist 1"), make_track("Song B", "Artist 2")];
+        let tracks = vec![
+            make_track("Song A", "Artist 1"),
+            make_track("Song B", "Artist 2"),
+        ];
         assert_eq!(filter_tracks(&tracks, ""), vec![0, 1]);
     }
 
     #[test]
     fn filter_tracks_matches_title_case_insensitive() {
-        let tracks = vec![make_track("Rock Anthem", "Band"), make_track("Jazz Night", "Trio")];
+        let tracks = vec![
+            make_track("Rock Anthem", "Band"),
+            make_track("Jazz Night", "Trio"),
+        ];
         assert_eq!(filter_tracks(&tracks, "rock"), vec![0]);
         assert_eq!(filter_tracks(&tracks, "JAZZ"), vec![1]);
     }
 
     #[test]
     fn filter_tracks_matches_artist() {
-        let tracks = vec![make_track("Title", "The Beatles"), make_track("Title", "Rolling Stones")];
+        let tracks = vec![
+            make_track("Title", "The Beatles"),
+            make_track("Title", "Rolling Stones"),
+        ];
         assert_eq!(filter_tracks(&tracks, "beatles"), vec![0]);
         assert_eq!(filter_tracks(&tracks, "stones"), vec![1]);
     }
@@ -1482,7 +1491,9 @@ mod tests {
                 name: "test".to_string(),
             },
         ];
-        terminal.draw(|f| draw_source_picker(f, &entries, 0)).unwrap();
+        terminal
+            .draw(|f| draw_source_picker(f, &entries, 0))
+            .unwrap();
     }
 
     #[test]
@@ -1496,7 +1507,9 @@ mod tests {
                 name: "MyList".to_string(),
             },
         ];
-        terminal.draw(|f| draw_source_picker(f, &entries, 0)).unwrap();
+        terminal
+            .draw(|f| draw_source_picker(f, &entries, 0))
+            .unwrap();
         let content: String = terminal
             .backend()
             .buffer()
@@ -1505,9 +1518,15 @@ mod tests {
             .map(|c| c.symbol())
             .collect();
         assert!(content.contains("[Dir]"), "content should contain [Dir]");
-        assert!(content.contains("[Recent]"), "content should contain [Recent]");
+        assert!(
+            content.contains("[Recent]"),
+            "content should contain [Recent]"
+        );
         assert!(content.contains("[PL]"), "content should contain [PL]");
-        assert!(content.contains("MyList"), "content should contain playlist name");
+        assert!(
+            content.contains("MyList"),
+            "content should contain playlist name"
+        );
     }
 
     #[test]
@@ -1519,7 +1538,9 @@ mod tests {
     #[test]
     fn draw_name_input_no_panic() {
         let mut terminal = make_terminal(80, 24);
-        terminal.draw(|f| draw_name_input(f, "my playlist")).unwrap();
+        terminal
+            .draw(|f| draw_name_input(f, "my playlist"))
+            .unwrap();
     }
 
     #[test]
@@ -1550,7 +1571,10 @@ mod tests {
         assert!(content.contains("Enter"), "help should show Enter key");
         assert!(content.contains("Space"), "help should show Space key");
         // CJK 文字はバッファ上で1セルずつ分割されるため個別に確認する
-        assert!(content.contains("通"), "help should show Normal section header");
+        assert!(
+            content.contains("通"),
+            "help should show Normal section header"
+        );
     }
 
     #[test]
