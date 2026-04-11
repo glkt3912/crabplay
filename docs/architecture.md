@@ -148,7 +148,8 @@ ui::tui::run()
               │     │     ├── ↑/↓   → picker_selected を移動
               │     │     ├── Enter  → load_source() → replace_tracks() + set_info("Source loaded (playlist cleared)") → ui_mode = Normal
               │     │     ├── d      → Playlist エントリ: std::fs::remove_file() → set_info("Deleted 'name'") + picker_entries 再構築
-              │     │     │           Directory エントリ: set_error("Cannot delete directory entry")
+              │     │     │           RecentDir エントリ: config.remove_recent_dir() → config.save() → set_info("Removed '...' from recents") + picker_entries 再構築
+              │     │     │           Directory エントリ: set_error("Cannot delete current directory entry")
               │     │     ├── Esc    → ui_mode = Normal（変更なし）
               │     │     └── その他 → 無視
               │     ├── UiMode::Help
@@ -179,7 +180,7 @@ ui::tui::run()
   - 行1: 再生状態・曲名・アーティスト・経過時間 / 合計時間・音量。`info_msg` があれば緑色、`last_error` があれば赤色で優先表示。
   - 行2: `Gauge` ウィジェットによるプログレスバー（再生中: `Color::Yellow`、一時停止中: `Color::DarkGray`）。`info_msg` / `last_error` 表示中またはトラック未選択時は非表示。
 - **キーバインド** (下段 `Constraint::Length(3)`): 現在の `repeat` モードをリアルタイム表示する動的文字列。端末幅が狭くて文字列が収まらない場合はマーキースクロール。配色 `Color::LightCyan`。
-- **ソース選択オーバーレイ** (`UiMode::SourcePicker` 時のみ): `o` キーで開く中央ポップアップ。`centered_rect(70%, 60%)` で算出した領域を `Clear` でクリアしてから `draw_source_picker()` で描画。`[Dir]`（現在のソースディレクトリ）→ `[Recent]`（最近使ったディレクトリ、最大10件・`config.toml` から読み込み）→ `[PL]`（保存済みプレイリスト、mtime 降順・全件）の順に `List` で表示。ボーダー `Color::Yellow`、選択行 `bg(DarkGray) + BOLD`。`d` キーで `[PL]` エントリを削除できる。ディレクトリ系エントリのロード成功時に `~/.config/crabplay/config.toml` を更新する。
+- **ソース選択オーバーレイ** (`UiMode::SourcePicker` 時のみ): `o` キーで開く中央ポップアップ。`centered_rect(70%, 60%)` で算出した領域を `Clear` でクリアしてから `draw_source_picker()` で描画。`[Dir]`（現在のソースディレクトリ）→ `[Recent]`（最近使ったディレクトリ、最大10件・`config.toml` から読み込み）→ `[PL]`（保存済みプレイリスト、mtime 降順・全件）の順に `List` で表示。ボーダー `Color::Yellow`、選択行 `bg(DarkGray) + BOLD`。`d` キーで `[PL]` エントリをディスクから削除、`[Recent]` エントリを `config.recent_dirs` から削除できる（`[Dir]` はエラー）。ディレクトリ系エントリのロード成功時に `~/.config/crabplay/config.toml` を更新する。
 - **名前入力オーバーレイ** (`UiMode::NameInput` 時のみ): `s` キーで開く小型ポップアップ。`centered_rect(60%, 20%)` の領域にテキスト入力フィールドを表示。ボーダー `Color::Cyan`。Enter で保存、Esc でキャンセル。
 - **ヘルプオーバーレイ** (`UiMode::Help` 時のみ): `?` キーで開く中央ポップアップ。`centered_rect(60%, 80%)` の領域を `Clear` でクリアしてから `draw_help_overlay(scroll)` で描画。通常操作・検索モード・ソースピッカー内の3セクションを `Paragraph::scroll` でスクロール可能。ボーダー `Color::Green`。↑/↓ でスクロール、他キーで閉じる。
 
