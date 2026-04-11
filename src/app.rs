@@ -319,6 +319,20 @@ impl AppState {
         }
     }
 
+    /// プレイリストの pos 番目のエントリを1つ前に移動する。
+    pub fn playlist_move_up(&mut self, pos: usize) {
+        if pos > 0 && pos < self.playlist.len() {
+            self.playlist.swap(pos - 1, pos);
+        }
+    }
+
+    /// プレイリストの pos 番目のエントリを1つ後ろに移動する。
+    pub fn playlist_move_down(&mut self, pos: usize) {
+        if pos + 1 < self.playlist.len() {
+            self.playlist.swap(pos, pos + 1);
+        }
+    }
+
     /// プレイリスト内のトラック一覧を返す（表示用）。
     pub fn playlist_tracks(&self) -> Vec<&TrackInfo> {
         self.playlist
@@ -508,6 +522,62 @@ mod tests {
         assert!(state.playlist_add_selected());
         assert!(!state.playlist_add_selected()); // 重複はスキップ
         assert_eq!(state.playlist_len(), 1);
+    }
+
+    #[test]
+    fn playlist_move_up_swaps_entries() {
+        let mut state = make_state(3);
+        for i in 0..3 {
+            state.selected = i;
+            state.playlist_add_selected();
+        }
+        // playlist = [0, 1, 2]
+        state.playlist_move_up(1);
+        // playlist = [1, 0, 2]
+        assert_eq!(state.playlist[0], 1);
+        assert_eq!(state.playlist[1], 0);
+        assert_eq!(state.playlist[2], 2);
+    }
+
+    #[test]
+    fn playlist_move_up_noop_at_top() {
+        let mut state = make_state(2);
+        for i in 0..2 {
+            state.selected = i;
+            state.playlist_add_selected();
+        }
+        // playlist = [0, 1]
+        state.playlist_move_up(0);
+        assert_eq!(state.playlist[0], 0);
+        assert_eq!(state.playlist[1], 1);
+    }
+
+    #[test]
+    fn playlist_move_down_swaps_entries() {
+        let mut state = make_state(3);
+        for i in 0..3 {
+            state.selected = i;
+            state.playlist_add_selected();
+        }
+        // playlist = [0, 1, 2]
+        state.playlist_move_down(1);
+        // playlist = [0, 2, 1]
+        assert_eq!(state.playlist[0], 0);
+        assert_eq!(state.playlist[1], 2);
+        assert_eq!(state.playlist[2], 1);
+    }
+
+    #[test]
+    fn playlist_move_down_noop_at_bottom() {
+        let mut state = make_state(2);
+        for i in 0..2 {
+            state.selected = i;
+            state.playlist_add_selected();
+        }
+        // playlist = [0, 1]
+        state.playlist_move_down(1);
+        assert_eq!(state.playlist[0], 0);
+        assert_eq!(state.playlist[1], 1);
     }
 
     #[test]
