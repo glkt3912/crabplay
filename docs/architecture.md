@@ -134,8 +134,15 @@ ui::tui::run()
               │     │     │           → false: name_input.clear() + ui_mode = NameInput
               │     │     ├── z      → toggle_shuffle() → set_info() → config.shuffle 更新・save()
               │     │     ├── +/-   → volume_up/down() → player.set_volume() → config.volume 更新・save()
+              │     │     ├── /      → search_query.clear() + search_indices = 全件 + ui_mode = Search
               │     │     ├── o      → build_source_entries() → ui_mode = SourcePicker
               │     │     └── q      → Player::stop() → break
+              │     ├── UiMode::Search
+              │     │     ├── 文字   → search_query に追加 → filter_tracks() → search_cursor = 0
+              │     │     ├── Backspace → search_query.pop() → filter_tracks() → search_cursor をクランプ
+              │     │     ├── ↑/↓   → search_cursor を移動（フィルタ済みリスト内）
+              │     │     ├── Enter  → state.selected = search_indices[search_cursor]（0件なら変更なし）→ Normal
+              │     │     └── Esc    → ui_mode = Normal（selected 変更なし）
               │     ├── UiMode::SourcePicker
               │     │     ├── ↑/↓   → picker_selected を移動
               │     │     ├── Enter  → load_source() → replace_tracks() + set_info("Source loaded (playlist cleared)") → ui_mode = Normal
@@ -161,7 +168,8 @@ ui::tui::run()
 
 - **トラックリスト** (上部 `Constraint::Min(3)`): `List` ウィジェット + `Scrollbar`。選択行ハイライト。長いタイトル・アーティスト名はマーキースクロール。各行末尾にプレイリスト位置バッジ（後述）を表示。
   - 各行の配色: 曲名 `Color::Green`、アーティスト `Color::Cyan`、時間 `Color::DarkGray`、バッジ `Color::Magenta`
-  - タイトルバー: プレイリストが空なら `" crabplay "`、曲が入っていれば `" crabplay  [PL: N] "`
+  - タイトルバー: 通常時はプレイリスト件数 `" crabplay  [PL: N] "`、Search モード中はマッチ件数 `" crabplay  [検索: N/M] "` を表示
+  - Search モード中はフィルタ済みトラックのみ表示。`filter_tracks(tracks, query)` が大文字小文字を無視してタイトル・アーティストを部分一致検索し、一致したインデックス列を返す
   - タイトル列・アーティスト列の幅は固定値ではなく、`chunks[0].width` からターミナル幅を取得して動的に計算（詳細は後述）
 - **Now Playing** (中段 `Constraint::Length(4)`): ブロックを先に描画し `block.inner()` で内側領域を取得。内部を縦2行に分割:
   - 行1: 再生状態・曲名・アーティスト・経過時間 / 合計時間・音量。`info_msg` があれば緑色、`last_error` があれば赤色で優先表示。
