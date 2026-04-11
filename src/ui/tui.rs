@@ -506,7 +506,10 @@ fn event_loop<B: ratatui::backend::Backend>(
                 // キュービューアー: ↑/↓ で選択、d で削除、Esc で閉じる
                 UiMode::QueueViewer => match key.code {
                     KeyCode::Up => {
-                        if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+                        if key
+                            .modifiers
+                            .contains(crossterm::event::KeyModifiers::SHIFT)
+                        {
                             state.playlist_move_up(queue_selected);
                             playlist_dirty = true;
                             queue_selected = queue_selected.saturating_sub(1);
@@ -517,7 +520,10 @@ fn event_loop<B: ratatui::backend::Backend>(
                     KeyCode::Down => {
                         let len = state.playlist_len();
                         if len > 0 {
-                            if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+                            if key
+                                .modifiers
+                                .contains(crossterm::event::KeyModifiers::SHIFT)
+                            {
                                 state.playlist_move_down(queue_selected);
                                 playlist_dirty = true;
                                 queue_selected = (queue_selected + 1).min(len - 1);
