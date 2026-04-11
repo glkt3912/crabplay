@@ -382,8 +382,27 @@ fn event_loop<B: ratatui::backend::Backend>(
                                 }
                             }
                         }
-                        Some(SourceEntry::Directory(_) | SourceEntry::RecentDir(_)) => {
-                            state.set_error("Cannot delete directory entry".to_string());
+                        Some(SourceEntry::RecentDir(dir)) => {
+                            let dir = dir.clone();
+                            config.remove_recent_dir(&dir);
+                            match config.save() {
+                                Ok(_) => {
+                                    state.set_info(format!(
+                                        "Removed '{}' from recents",
+                                        dir.display()
+                                    ));
+                                    picker_entries =
+                                        build_source_entries(&state.source_dir, &config);
+                                    picker_selected =
+                                        picker_selected.min(picker_entries.len().saturating_sub(1));
+                                }
+                                Err(e) => {
+                                    state.set_error(format!("Save failed: {e}"));
+                                }
+                            }
+                        }
+                        Some(SourceEntry::Directory(_)) => {
+                            state.set_error("Cannot delete current directory entry".to_string());
                         }
                         None => {}
                     },

@@ -75,6 +75,11 @@ impl Config {
         self.recent_dirs.truncate(MAX_RECENT);
     }
 
+    /// `dir` を `recent_dirs` から削除する。存在しない場合は何もしない。
+    pub fn remove_recent_dir(&mut self, dir: &std::path::Path) {
+        self.recent_dirs.retain(|d| d.as_path() != dir);
+    }
+
     /// デフォルト設定ファイルパス。
     pub fn default_path() -> PathBuf {
         xdg_config_base().join("crabplay").join("config.toml")
@@ -105,6 +110,27 @@ mod tests {
             config.recent_dirs,
             vec![PathBuf::from("/a"), PathBuf::from("/b")]
         );
+    }
+
+    #[test]
+    fn remove_recent_dir_removes_existing() {
+        let mut config = Config::default();
+        config.push_recent_dir(PathBuf::from("/a"));
+        config.push_recent_dir(PathBuf::from("/b"));
+        config.push_recent_dir(PathBuf::from("/c"));
+        config.remove_recent_dir(&PathBuf::from("/b"));
+        assert_eq!(
+            config.recent_dirs,
+            vec![PathBuf::from("/c"), PathBuf::from("/a")]
+        );
+    }
+
+    #[test]
+    fn remove_recent_dir_noop_if_missing() {
+        let mut config = Config::default();
+        config.push_recent_dir(PathBuf::from("/a"));
+        config.remove_recent_dir(&PathBuf::from("/nonexistent"));
+        assert_eq!(config.recent_dirs, vec![PathBuf::from("/a")]);
     }
 
     #[test]
