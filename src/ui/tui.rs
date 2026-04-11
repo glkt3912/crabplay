@@ -33,6 +33,7 @@ enum UiMode {
     SourcePicker,
     NameInput,
     Search,
+    Help,
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +74,8 @@ struct PickerState<'a> {
     search_indices: &'a [usize],
     /// Search モード時のカーソル位置（フィルタ済みリスト内）
     search_cursor: usize,
+    /// Help モード時のスクロールオフセット
+    help_scroll: u16,
 }
 
 /// パニック時も含めてターミナルを必ず復元するガード型。
@@ -139,6 +142,8 @@ fn event_loop<B: ratatui::backend::Backend>(
     let mut search_query = String::new();
     let mut search_indices: Vec<usize> = Vec::new();
     let mut search_cursor: usize = 0;
+    // ヘルプオーバーレイのスクロールオフセット
+    let mut help_scroll: u16 = 0;
 
     loop {
         state.tick_timeouts();
@@ -167,6 +172,7 @@ fn event_loop<B: ratatui::backend::Backend>(
             search_query: &search_query,
             search_indices: &search_indices,
             search_cursor,
+            help_scroll,
         };
         terminal.draw(|f| {
             draw(
@@ -280,6 +286,11 @@ fn event_loop<B: ratatui::backend::Backend>(
                             marquee_cache.reset_offset();
                             marquee_tick = 0;
                             ui_mode = UiMode::Search;
+                        }
+                        // ヘルプオーバーレイを開く
+                        KeyCode::Char('?') => {
+                            help_scroll = 0;
+                            ui_mode = UiMode::Help;
                         }
                         // ソース選択オーバーレイを開く
                         KeyCode::Char('o') => {
@@ -442,6 +453,19 @@ fn event_loop<B: ratatui::backend::Backend>(
                         search_cursor = 0;
                     }
                     _ => {}
+                },
+                // ヘルプオーバーレイ: ↑/↓ でスクロール、他キーで閉じる
+                UiMode::Help => match key.code {
+                    KeyCode::Up => {
+                        help_scroll = help_scroll.saturating_sub(1);
+                    }
+                    KeyCode::Down => {
+                        help_scroll += 1;
+                    }
+                    _ => {
+                        ui_mode = UiMode::Normal;
+                        help_scroll = 0;
+                    }
                 },
             }
         }
@@ -1061,6 +1085,10 @@ fn draw(
     if picker.mode == UiMode::NameInput {
         draw_name_input(f, picker.name_input);
     }
+    // ヘルプオーバーレイ（Help モード時のみ）
+    if picker.mode == UiMode::Help {
+        draw_help_overlay(f, picker.help_scroll);
+    }
 }
 
 /// 画面中央に percent_x × percent_y の矩形を返す。
@@ -1132,6 +1160,148 @@ fn draw_name_input(f: &mut ratatui::Frame, name_input: &str) {
                 .border_style(Style::default().fg(Color::Cyan)),
         )
         .style(Style::default().fg(Color::White));
+
+    f.render_widget(widget, area);
+}
+
+/// キーバインドヘルプオーバーレイを描画する。
+fn draw_help_overlay(f: &mut ratatui::Frame, scroll: u16) {
+    use ratatui::widgets::Clear;
+
+    let area = centered_rect(60, 80, f.area());
+    f.render_widget(Clear, area);
+
+    let text = vec![
+        Line::from(Span::styled(
+            " 通常操作 ",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  ↑ / ↓       ", Style::default().fg(Color::Cyan)),
+            Span::raw("トラック選択"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Enter       ", Style::default().fg(Color::Cyan)),
+            Span::raw("選択曲を再生"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Space       ", Style::default().fg(Color::Cyan)),
+            Span::raw("再生 / 一時停止"),
+        ]),
+        Line::from(vec![
+            Span::styled("  ← / →       ", Style::default().fg(Color::Cyan)),
+            Span::raw("±5 秒シーク"),
+        ]),
+        Line::from(vec![
+            Span::styled("  n / p       ", Style::default().fg(Color::Cyan)),
+            Span::raw("次 / 前の曲へスキップして再生"),
+        ]),
+        Line::from(vec![
+            Span::styled("  r           ", Style::default().fg(Color::Cyan)),
+            Span::raw("リピートモード切り替え (Off → All → One)"),
+        ]),
+        Line::from(vec![
+            Span::styled("  z           ", Style::default().fg(Color::Cyan)),
+            Span::raw("シャッフル On / Off"),
+        ]),
+        Line::from(vec![
+            Span::styled("  + / -       ", Style::default().fg(Color::Cyan)),
+            Span::raw("音量 +5% / -5%"),
+        ]),
+        Line::from(vec![
+            Span::styled("  /           ", Style::default().fg(Color::Cyan)),
+            Span::raw("インクリメンタル検索"),
+        ]),
+        Line::from(vec![
+            Span::styled("  a           ", Style::default().fg(Color::Cyan)),
+            Span::raw("選択曲をプレイリストに追加"),
+        ]),
+        Line::from(vec![
+            Span::styled("  c           ", Style::default().fg(Color::Cyan)),
+            Span::raw("プレイリストをクリア"),
+        ]),
+        Line::from(vec![
+            Span::styled("  s           ", Style::default().fg(Color::Cyan)),
+            Span::raw("プレイリストを名前をつけて保存"),
+        ]),
+        Line::from(vec![
+            Span::styled("  o           ", Style::default().fg(Color::Cyan)),
+            Span::raw("ソースピッカーを開く"),
+        ]),
+        Line::from(vec![
+            Span::styled("  ?           ", Style::default().fg(Color::Cyan)),
+            Span::raw("このヘルプを表示"),
+        ]),
+        Line::from(vec![
+            Span::styled("  q           ", Style::default().fg(Color::Cyan)),
+            Span::raw("終了"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            " 検索モード ",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  文字入力    ", Style::default().fg(Color::Cyan)),
+            Span::raw("クエリを追加してリアルタイム絞り込み"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Backspace   ", Style::default().fg(Color::Cyan)),
+            Span::raw("クエリを 1 文字削除"),
+        ]),
+        Line::from(vec![
+            Span::styled("  ↑ / ↓       ", Style::default().fg(Color::Cyan)),
+            Span::raw("絞り込み結果内を移動"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Enter       ", Style::default().fg(Color::Cyan)),
+            Span::raw("選択を確定して通常モードに戻る"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Esc         ", Style::default().fg(Color::Cyan)),
+            Span::raw("検索をキャンセル"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            " ソースピッカー内 ",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  ↑ / ↓       ", Style::default().fg(Color::Cyan)),
+            Span::raw("項目選択"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Enter       ", Style::default().fg(Color::Cyan)),
+            Span::raw("選択したソースを読み込む"),
+        ]),
+        Line::from(vec![
+            Span::styled("  d           ", Style::default().fg(Color::Cyan)),
+            Span::raw("選択中のプレイリストを削除"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Esc         ", Style::default().fg(Color::Cyan)),
+            Span::raw("ピッカーを閉じる"),
+        ]),
+    ];
+
+    let widget = Paragraph::new(text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" キーバインド一覧  [↑↓] スクロール  [任意のキー] 閉じる ")
+                .border_style(Style::default().fg(Color::Green)),
+        )
+        .style(Style::default().fg(Color::White))
+        .scroll((scroll, 0));
 
     f.render_widget(widget, area);
 }
