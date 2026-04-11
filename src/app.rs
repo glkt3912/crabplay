@@ -38,6 +38,46 @@ impl RepeatMode {
     }
 }
 
+/// トラックリストのソートキー。`cycle()` で順番にサイクルする。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortKey {
+    #[default]
+    /// スキャン順（デフォルト）。
+    Default,
+    /// タイトル昇順。
+    Title,
+    /// アーティスト昇順。
+    Artist,
+    /// アルバム昇順。
+    Album,
+    /// 再生時間昇順。
+    Duration,
+}
+
+impl SortKey {
+    /// 次のソートキーを返す。
+    pub fn cycle(self) -> Self {
+        match self {
+            SortKey::Default => SortKey::Title,
+            SortKey::Title => SortKey::Artist,
+            SortKey::Artist => SortKey::Album,
+            SortKey::Album => SortKey::Duration,
+            SortKey::Duration => SortKey::Default,
+        }
+    }
+
+    /// ステータスバー表示用ラベル。
+    pub fn label(self) -> &'static str {
+        match self {
+            SortKey::Default => "Default",
+            SortKey::Title => "Title",
+            SortKey::Artist => "Artist",
+            SortKey::Album => "Album",
+            SortKey::Duration => "Duration",
+        }
+    }
+}
+
 /// 音声プレイヤーの再生状態。
 ///
 /// `Copy` を実装するため、参照ではなく値で渡す。
@@ -82,12 +122,17 @@ pub struct AppState {
     pub volume: f32,
     /// シャッフル再生。
     pub shuffle: bool,
+    /// トラックリストのソートキー。
+    pub sort_key: SortKey,
+    /// スキャン順の元のトラック一覧（ソートのベースとして保持）。
+    original_tracks: Vec<TrackInfo>,
 }
 
 impl AppState {
     /// トラック一覧とスキャンディレクトリを受け取り、初期状態の `AppState` を生成する。
     pub fn new(tracks: Vec<TrackInfo>, source_dir: PathBuf) -> Self {
         Self {
+            original_tracks: tracks.clone(),
             tracks,
             selected: 0,
             source_dir,
@@ -102,7 +147,59 @@ impl AppState {
             playback_started_at: None,
             volume: 1.0,
             shuffle: false,
+            sort_key: SortKey::Default,
         }
+    }
+
+    /// ソートキーをサイクルしてトラックリストを並び替える。
+    /// プレイリストのインデックスは並び替え後の位置に更新する。
+    pub fn cycle_sort(&mut self) {
+        self.sort_key = self.sort_key.cycle();
+        self.apply_sort();
+    }
+
+    /// 現在の `sort_key` に従ってトラックリストを並び替える。
+    fn apply_sort(&mut self) {
+        // 並び替え前の playing_index / selected のパスを記憶
+        let playing_path = self
+            .playing_index
+            .and_then(|i| self.tracks.get(i))
+            .map(|t| t.path.clone());
+        let selected_path = self.tracks.get(self.selected).map(|t| t.path.clone());
+
+        // ソート
+        self.tracks = self.original_tracks.clone();
+        match self.sort_key {
+            SortKey::Default => {}
+            SortKey::Title => self
+                .tracks
+                .sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase())),
+            SortKey::Artist => self
+                .tracks
+                .sort_by(|a, b| a.artist.to_lowercase().cmp(&b.artist.to_lowercase())),
+            SortKey::Album => self
+                .tracks
+                .sort_by(|a, b| a.album.to_lowercase().cmp(&b.album.to_lowercase())),
+            SortKey::Duration => self.tracks.sort_by_key(|t| t.duration_secs),
+        }
+
+        // playing_index / selected をパスで再マッピング
+        self.playing_index =
+            playing_path.and_then(|p| self.tracks.iter().position(|t| t.path == p));
+        self.selected = selected_path
+            .and_then(|p| self.tracks.iter().position(|t| t.path == p))
+            .unwrap_or(0);
+
+        // プレイリストのインデックスを新しい位置に更新
+        self.playlist = self
+            .playlist
+            .iter()
+            .filter_map(|&old_idx| {
+                self.original_tracks
+                    .get(old_idx)
+                    .and_then(|t| self.tracks.iter().position(|u| u.path == t.path))
+            })
+            .collect();
     }
 
     /// カーソルを1つ下に移動する。末尾では移動しない。
@@ -165,7 +262,9 @@ impl AppState {
     /// `player.stop()` の呼び出しは呼び出し側の責務。
     /// このメソッド後に `set_info()` を呼ぶと通知メッセージを表示できる。
     pub fn replace_tracks(&mut self, tracks: Vec<TrackInfo>) {
+        self.original_tracks = tracks.clone();
         self.tracks = tracks;
+        self.sort_key = SortKey::Default;
         self.selected = 0;
         self.playing_index = None;
         self.player_state = PlayerState::Stopped;

@@ -21,7 +21,7 @@ use std::io;
 use std::path::PathBuf;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::app::{AppState, PlayerState};
+use crate::app::{AppState, PlayerState, SortKey};
 use crate::audio::player::Player;
 use crate::config::Config;
 use crate::library::{metadata::read_metadata, scanner::scan_directory};
@@ -308,6 +308,12 @@ fn event_loop<B: ratatui::backend::Backend>(
                         KeyCode::Char('v') => {
                             queue_selected = 0;
                             ui_mode = UiMode::QueueViewer;
+                        }
+                        // ソートキーをサイクル
+                        KeyCode::Char('S') => {
+                            state.cycle_sort();
+                            state.set_info(format!("Sort: {}", state.sort_key.label()));
+                            playlist_dirty = true;
                         }
                         // シーク（±5秒）
                         KeyCode::Left | KeyCode::Right
@@ -998,16 +1004,22 @@ fn draw(
         .collect();
 
     // タイトルバー: Search 中はマッチ件数を表示
+    let sort_badge = if state.sort_key != SortKey::Default {
+        format!("  [Sort: {}]", state.sort_key.label())
+    } else {
+        String::new()
+    };
     let list_title = if is_search {
         format!(
-            " crabplay  [検索: {}/{}] ",
+            " crabplay  [検索: {}/{}]{} ",
             picker.search_indices.len(),
-            state.tracks.len()
+            state.tracks.len(),
+            sort_badge
         )
     } else if state.playlist_is_empty() {
-        " crabplay ".to_string()
+        format!(" crabplay{} ", sort_badge)
     } else {
-        format!(" crabplay  [PL: {}] ", state.playlist_len())
+        format!(" crabplay  [PL: {}]{} ", state.playlist_len(), sort_badge)
     };
 
     let list = List::new(items)
@@ -1116,7 +1128,7 @@ fn draw(
     } else {
         // 通常のキーバインド表示（リピートモード・シャッフル状態をリアルタイム表示）
         let keybinds_raw = format!(
-            " [↑↓] select  [Enter] play  [Space] pause  [←/→] seek ±5s  [n/p] move+play  [/] search  [a] add to playlist  [c] clear playlist  [v] view queue  [r] repeat:{}  [z] shuffle:{}  [s] save playlist  [o] open source  [+/-] volume  [q] quit",
+            " [↑↓] select  [Enter] play  [Space] pause  [←/→] seek ±5s  [n/p] move+play  [/] search  [a] add to playlist  [c] clear playlist  [v] view queue  [S] sort  [r] repeat:{}  [z] shuffle:{}  [s] save playlist  [o] open source  [+/-] volume  [q] quit",
             state.repeat.label(),
             if state.shuffle { "On" } else { "Off" }
         );
@@ -1348,6 +1360,10 @@ fn draw_help_overlay(f: &mut ratatui::Frame, scroll: u16) {
         Line::from(vec![
             Span::styled("  v           ", Style::default().fg(Color::Cyan)),
             Span::raw("キュービューアーを開く"),
+        ]),
+        Line::from(vec![
+            Span::styled("  S           ", Style::default().fg(Color::Cyan)),
+            Span::raw("ソートキー切り替え (Default → Title → Artist → Album → Duration)"),
         ]),
         Line::from(vec![
             Span::styled("  s           ", Style::default().fg(Color::Cyan)),
