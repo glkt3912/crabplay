@@ -1251,10 +1251,7 @@ fn draw_queue_viewer(f: &mut ratatui::Frame, state: &crate::app::AppState, selec
                         Style::default().fg(Color::Reset),
                     ),
                     Span::styled(t.title.clone(), Style::default().fg(Color::Green)),
-                    Span::styled(
-                        format!(" — {}", t.artist),
-                        Style::default().fg(Color::Cyan),
-                    ),
+                    Span::styled(format!(" — {}", t.artist), Style::default().fg(Color::Cyan)),
                     Span::styled(
                         format!(" {:>2}:{:02}", mins, secs),
                         Style::default().fg(Color::Reset),
