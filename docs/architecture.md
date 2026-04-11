@@ -130,6 +130,7 @@ ui::tui::run()
               │     │     │                                     → false: set_info("Already in playlist")
               │     │     ├── c      → clear_playlist() + playlist_dirty = true → set_info("Playlist cleared")
               │     │     ├── v      → queue_selected = 0 + ui_mode = QueueViewer
+              │     │     ├── S      → cycle_sort() → apply_sort() → playlist_dirty + set_info("Sort: Key")
               │     │     ├── r      → cycle_repeat() → set_info() でモード表示（3秒）→ config.repeat 更新・save()
               │     │     ├── s      → playlist_is_empty() → true: set_error()
               │     │     │           → false: name_input.clear() + ui_mode = NameInput
@@ -270,6 +271,8 @@ pub struct AppState {
 | `playlist_tracks()` | `playlist` に登録されたトラックの `&TrackInfo` スライスを返す（キュービューアー表示用） |
 | `playlist_len()` / `playlist_is_empty()` / `playlist_paths()` | プレイリスト参照（読み取り専用） |
 | `playlist_badge_map()` | トラックインデックス → プレイリスト内位置リストの `HashMap<usize, Vec<usize>>` を O(P) で構築 |
+| `cycle_sort()` | `sort_key` をサイクルして `apply_sort()` を呼ぶ |
+| `apply_sort()` | `original_tracks` をベースにソートし、`selected` / `playing_index` / `playlist` をパスで再マッピング |
 
 `set_playing()` と `set_resumed()` を分けることで、ポーズ中にカーソルを別トラックへ移動してもポーズ解除時に ▶ マーカーがずれない。
 
