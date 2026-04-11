@@ -76,8 +76,8 @@ impl Config {
     }
 
     /// `dir` を `recent_dirs` から削除する。存在しない場合は何もしない。
-    pub fn remove_recent_dir(&mut self, dir: &PathBuf) {
-        self.recent_dirs.retain(|d| d != dir);
+    pub fn remove_recent_dir(&mut self, dir: &std::path::Path) {
+        self.recent_dirs.retain(|d| d.as_path() != dir);
     }
 
     /// デフォルト設定ファイルパス。
