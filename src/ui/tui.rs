@@ -1633,6 +1633,25 @@ mod tests {
         assert_eq!(filter_tracks(&tracks, "BLUE"), vec![0]);
     }
 
+    #[test]
+    fn filter_tracks_album_title_overlap_no_duplicate() {
+        // タイトルとアルバム名の両方にマッチしても同じインデックスが重複しない
+        let tracks = vec![
+            make_track_full("Blue Song", "Artist", "Blue Album"),
+            make_track_full("Other", "Artist", "Other"),
+        ];
+        assert_eq!(filter_tracks(&tracks, "blue"), vec![0]);
+    }
+
+    #[test]
+    fn filter_tracks_empty_album_does_not_match_nonempty_query() {
+        // album が空文字のトラックは album 検索でヒットしない
+        let tracks = vec![
+            make_track("Song", "Artist"), // album = ""
+        ];
+        assert!(filter_tracks(&tracks, "album").is_empty());
+    }
+
     // ── TestBackend 描画テスト ──────────────────────────────────────
 
     fn make_terminal(width: u16, height: u16) -> ratatui::Terminal<ratatui::backend::TestBackend> {
