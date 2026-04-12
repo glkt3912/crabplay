@@ -412,21 +412,22 @@ impl AppState {
             self.info_since = None;
         }
         if let Some(secs) = self.sleep_timer_secs {
-            if secs == 0 {
+            let new_secs = secs.saturating_sub(1);
+            if new_secs == 0 {
                 self.sleep_timer_secs = None;
                 return true;
             }
-            self.sleep_timer_secs = Some(secs - 1);
+            self.sleep_timer_secs = Some(new_secs);
         }
         false
     }
 
-    /// スリープタイマーを分単位で設定する。0 または None でキャンセル。
+    /// スリープタイマーを分単位で設定する。0 でキャンセル。
     pub fn set_sleep_timer(&mut self, minutes: u64) {
         if minutes == 0 {
             self.sleep_timer_secs = None;
         } else {
-            self.sleep_timer_secs = Some(minutes * 60);
+            self.sleep_timer_secs = Some(minutes.saturating_mul(60));
         }
     }
 
@@ -667,15 +668,18 @@ mod tests {
         let mut state = make_state(1);
         state.set_sleep_timer(1); // 1分 = 60秒
         assert_eq!(state.sleep_timer_secs, Some(60));
-        // 59回カウントダウン
-        for _ in 0..59 {
+        // 59回カウントダウン: Some(60) → Some(59) → … → Some(2)
+        for _ in 0..58 {
             let fired = state.tick_timeouts();
             assert!(!fired);
         }
+        assert_eq!(state.sleep_timer_secs, Some(2));
+        // 59回目: Some(2) → Some(1)
+        let fired = state.tick_timeouts();
+        assert!(!fired);
         assert_eq!(state.sleep_timer_secs, Some(1));
-        // 最後の1回で0になり次のフレームで発火
-        let _ = state.tick_timeouts(); // 0 になる
-        let fired = state.tick_timeouts(); // 発火
+        // 60回目: Some(1) → None、発火
+        let fired = state.tick_timeouts();
         assert!(fired);
         assert!(state.sleep_timer_secs.is_none());
     }

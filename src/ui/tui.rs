@@ -154,13 +154,12 @@ fn event_loop<B: ratatui::backend::Backend>(
     let mut queue_selected: usize = 0;
     // スリープタイマー入力バッファ
     let mut timer_input = String::new();
-    // タイマーのティックカウンタ（200ms × 5 = 1秒）
-    let mut timer_tick: u8 = 0;
+    // タイマーの最終tick時刻（Instantベースで1秒ごとにtick_timeoutsを呼ぶ）
+    let mut last_tick_at = std::time::Instant::now();
 
     loop {
-        timer_tick += 1;
-        let timer_fired = if timer_tick >= 5 {
-            timer_tick = 0;
+        let timer_fired = if last_tick_at.elapsed() >= std::time::Duration::from_secs(1) {
+            last_tick_at = std::time::Instant::now();
             state.tick_timeouts()
         } else {
             false
@@ -499,7 +498,7 @@ fn event_loop<B: ratatui::backend::Backend>(
                     KeyCode::Backspace => {
                         timer_input.pop();
                     }
-                    KeyCode::Char(c) if c.is_ascii_digit() => {
+                    KeyCode::Char(c) if c.is_ascii_digit() && timer_input.len() < 4 => {
                         timer_input.push(c);
                     }
                     _ => {}
