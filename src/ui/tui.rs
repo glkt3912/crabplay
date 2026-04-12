@@ -486,7 +486,9 @@ fn event_loop<B: ratatui::backend::Backend>(
                                 state.set_info("スリープタイマーをキャンセルしました".to_string());
                             } else {
                                 state.set_sleep_timer(mins);
-                                state.set_info(format!("スリープタイマーを {mins} 分に設定しました"));
+                                state.set_info(format!(
+                                    "スリープタイマーを {mins} 分に設定しました"
+                                ));
                             }
                         } else {
                             state.set_error("数字を入力してください".to_string());
