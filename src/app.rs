@@ -126,6 +126,8 @@ pub struct AppState {
     pub sort_key: SortKey,
     /// スキャン順の元のトラック一覧（ソートのベースとして保持）。
     original_tracks: Vec<TrackInfo>,
+    /// スリープタイマーの残り秒数。None はタイマー未設定。
+    pub sleep_timer_secs: Option<u64>,
 }
 
 impl AppState {
@@ -148,6 +150,7 @@ impl AppState {
             volume: 1.0,
             shuffle: false,
             sort_key: SortKey::Default,
+            sleep_timer_secs: None,
         }
     }
 
@@ -390,7 +393,8 @@ impl AppState {
     }
 
     /// info_msg（3秒）と last_error（5秒）の自動クリアを行う。イベントループの先頭で毎フレーム呼ぶ。
-    pub fn tick_timeouts(&mut self) {
+    /// スリープタイマーが0になった場合は `true` を返す（呼び出し側で停止処理を行う）。
+    pub fn tick_timeouts(&mut self) -> bool {
         if self
             .error_since
             .map(|t| t.elapsed() >= std::time::Duration::from_secs(5))
@@ -406,6 +410,23 @@ impl AppState {
         {
             self.info_msg = None;
             self.info_since = None;
+        }
+        if let Some(secs) = self.sleep_timer_secs {
+            if secs == 0 {
+                self.sleep_timer_secs = None;
+                return true;
+            }
+            self.sleep_timer_secs = Some(secs - 1);
+        }
+        false
+    }
+
+    /// スリープタイマーを分単位で設定する。0 または None でキャンセル。
+    pub fn set_sleep_timer(&mut self, minutes: u64) {
+        if minutes == 0 {
+            self.sleep_timer_secs = None;
+        } else {
+            self.sleep_timer_secs = Some(minutes * 60);
         }
     }
 
@@ -639,6 +660,40 @@ mod tests {
         assert_eq!(state.playlist.len(), 3);
         state.playlist_move_down(0);
         assert_eq!(state.playlist.len(), 3);
+    }
+
+    #[test]
+    fn sleep_timer_set_and_countdown() {
+        let mut state = make_state(1);
+        state.set_sleep_timer(1); // 1分 = 60秒
+        assert_eq!(state.sleep_timer_secs, Some(60));
+        // 59回カウントダウン
+        for _ in 0..59 {
+            let fired = state.tick_timeouts();
+            assert!(!fired);
+        }
+        assert_eq!(state.sleep_timer_secs, Some(1));
+        // 最後の1回で0になり次のフレームで発火
+        let _ = state.tick_timeouts(); // 0 になる
+        let fired = state.tick_timeouts(); // 発火
+        assert!(fired);
+        assert!(state.sleep_timer_secs.is_none());
+    }
+
+    #[test]
+    fn sleep_timer_cancel() {
+        let mut state = make_state(1);
+        state.set_sleep_timer(5);
+        assert!(state.sleep_timer_secs.is_some());
+        state.set_sleep_timer(0);
+        assert!(state.sleep_timer_secs.is_none());
+    }
+
+    #[test]
+    fn sleep_timer_zero_minutes_is_cancel() {
+        let mut state = make_state(1);
+        state.set_sleep_timer(0);
+        assert!(state.sleep_timer_secs.is_none());
     }
 
     #[test]

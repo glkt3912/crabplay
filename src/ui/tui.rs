@@ -32,6 +32,7 @@ enum UiMode {
     Normal,
     SourcePicker,
     NameInput,
+    TimerInput,
     Search,
     Help,
     QueueViewer,
@@ -79,6 +80,8 @@ struct PickerState<'a> {
     help_scroll: u16,
     /// QueueViewer モード時の選択カーソル位置
     queue_selected: usize,
+    /// TimerInput モード時の入力バッファ
+    timer_input: &'a str,
 }
 
 /// パニック時も含めてターミナルを必ず復元するガード型。
@@ -149,9 +152,24 @@ fn event_loop<B: ratatui::backend::Backend>(
     let mut help_scroll: u16 = 0;
     // キュービューアーの選択カーソル
     let mut queue_selected: usize = 0;
+    // スリープタイマー入力バッファ
+    let mut timer_input = String::new();
+    // タイマーのティックカウンタ（200ms × 5 = 1秒）
+    let mut timer_tick: u8 = 0;
 
     loop {
-        state.tick_timeouts();
+        timer_tick += 1;
+        let timer_fired = if timer_tick >= 5 {
+            timer_tick = 0;
+            state.tick_timeouts()
+        } else {
+            false
+        };
+        if timer_fired {
+            player.stop();
+            state.set_stopped();
+            state.set_info("スリープタイマーが終了しました".to_string());
+        }
 
         if playlist_dirty {
             playlist_badge_map = state.playlist_badge_map();
@@ -179,6 +197,7 @@ fn event_loop<B: ratatui::backend::Backend>(
             search_cursor,
             help_scroll,
             queue_selected,
+            timer_input: &timer_input,
         };
         terminal.draw(|f| {
             draw(
@@ -315,6 +334,10 @@ fn event_loop<B: ratatui::backend::Backend>(
                             state.set_info(format!("Sort: {}", state.sort_key.label()));
                             playlist_dirty = true;
                         }
+                        KeyCode::Char('T') => {
+                            timer_input.clear();
+                            ui_mode = UiMode::TimerInput;
+                        }
                         // シーク（±5秒）
                         KeyCode::Left | KeyCode::Right
                             if state.player_state() != PlayerState::Stopped =>
@@ -444,6 +467,38 @@ fn event_loop<B: ratatui::backend::Backend>(
                         if !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') =>
                     {
                         name_input.push(c);
+                    }
+                    _ => {}
+                },
+                UiMode::TimerInput => match key.code {
+                    KeyCode::Esc => {
+                        timer_input.clear();
+                        ui_mode = UiMode::Normal;
+                    }
+                    KeyCode::Enter => {
+                        if timer_input.is_empty() {
+                            // 空 Enter でタイマーキャンセル
+                            state.set_sleep_timer(0);
+                            state.set_info("スリープタイマーをキャンセルしました".to_string());
+                        } else if let Ok(mins) = timer_input.parse::<u64>() {
+                            if mins == 0 {
+                                state.set_sleep_timer(0);
+                                state.set_info("スリープタイマーをキャンセルしました".to_string());
+                            } else {
+                                state.set_sleep_timer(mins);
+                                state.set_info(format!("スリープタイマーを {mins} 分に設定しました"));
+                            }
+                        } else {
+                            state.set_error("数字を入力してください".to_string());
+                        }
+                        timer_input.clear();
+                        ui_mode = UiMode::Normal;
+                    }
+                    KeyCode::Backspace => {
+                        timer_input.pop();
+                    }
+                    KeyCode::Char(c) if c.is_ascii_digit() => {
+                        timer_input.push(c);
                     }
                     _ => {}
                 },
@@ -1029,17 +1084,28 @@ fn draw(
     } else {
         String::new()
     };
+    let timer_badge = if let Some(secs) = state.sleep_timer_secs {
+        format!("  [Timer: {:02}:{:02}]", secs / 60, secs % 60)
+    } else {
+        String::new()
+    };
     let list_title = if is_search {
         format!(
-            " crabplay  [検索: {}/{}]{} ",
+            " crabplay  [検索: {}/{}]{}{} ",
             picker.search_indices.len(),
             state.tracks.len(),
-            sort_badge
+            sort_badge,
+            timer_badge
         )
     } else if state.playlist_is_empty() {
-        format!(" crabplay{} ", sort_badge)
+        format!(" crabplay{}{} ", sort_badge, timer_badge)
     } else {
-        format!(" crabplay  [PL: {}]{} ", state.playlist_len(), sort_badge)
+        format!(
+            " crabplay  [PL: {}]{}{} ",
+            state.playlist_len(),
+            sort_badge,
+            timer_badge
+        )
     };
 
     let list = List::new(items)
@@ -1148,7 +1214,7 @@ fn draw(
     } else {
         // 通常のキーバインド表示（リピートモード・シャッフル状態をリアルタイム表示）
         let keybinds_raw = format!(
-            " [↑↓] select  [Enter] play  [Space] pause  [←/→] seek ±5s  [n/p] move+play  [/] search  [a] add to playlist  [c] clear playlist  [v] view queue  [S] sort  [r] repeat:{}  [z] shuffle:{}  [s] save playlist  [o] open source  [+/-] volume  [q] quit",
+            " [↑↓] select  [Enter] play  [Space] pause  [←/→] seek ±5s  [n/p] move+play  [/] search  [a] add to playlist  [c] clear playlist  [v] view queue  [S] sort  [T] sleep timer  [r] repeat:{}  [z] shuffle:{}  [s] save playlist  [o] open source  [+/-] volume  [q] quit",
             state.repeat.label(),
             if state.shuffle { "On" } else { "Off" }
         );
@@ -1180,6 +1246,10 @@ fn draw(
     // キュービューアーオーバーレイ（QueueViewer モード時のみ）
     if picker.mode == UiMode::QueueViewer {
         draw_queue_viewer(f, state, picker.queue_selected);
+    }
+    // タイマー入力オーバーレイ（TimerInput モード時のみ）
+    if picker.mode == UiMode::TimerInput {
+        draw_timer_input(f, picker.timer_input);
     }
 }
 
@@ -1250,6 +1320,26 @@ fn draw_name_input(f: &mut ratatui::Frame, name_input: &str) {
                 .borders(Borders::ALL)
                 .title(" Save Playlist  [Enter] save  [Esc] cancel ")
                 .border_style(Style::default().fg(Color::Cyan)),
+        )
+        .style(Style::default().fg(Color::Reset));
+
+    f.render_widget(widget, area);
+}
+
+/// スリープタイマー入力オーバーレイを描画する。
+fn draw_timer_input(f: &mut ratatui::Frame, timer_input: &str) {
+    use ratatui::widgets::Clear;
+
+    let area = centered_rect(50, 20, f.area());
+    f.render_widget(Clear, area);
+
+    let display = format!(" 分数を入力 > {timer_input}_");
+    let widget = Paragraph::new(display)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Sleep Timer  [Enter] set  [空Enter] cancel  [Esc] close ")
+                .border_style(Style::default().fg(Color::Yellow)),
         )
         .style(Style::default().fg(Color::Reset));
 
