@@ -740,7 +740,7 @@ const BADGE_WIDTH: usize = 6;
 const SEEK_OFFSET: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// `query` にマッチするトラックのインデックス列を返す。
-/// タイトルまたはアーティストに対して大文字小文字を無視した部分一致で検索する。
+/// タイトル・アーティスト・アルバムに対して大文字小文字を無視した部分一致で検索する。
 /// `query` が空の場合は全インデックスを返す。
 fn filter_tracks(tracks: &[crate::models::TrackInfo], query: &str) -> Vec<usize> {
     if query.is_empty() {
@@ -751,7 +751,9 @@ fn filter_tracks(tracks: &[crate::models::TrackInfo], query: &str) -> Vec<usize>
         .iter()
         .enumerate()
         .filter(|(_, t)| {
-            t.title.to_lowercase().contains(&q) || t.artist.to_lowercase().contains(&q)
+            t.title.to_lowercase().contains(&q)
+                || t.artist.to_lowercase().contains(&q)
+                || t.album.to_lowercase().contains(&q)
         })
         .map(|(i, _)| i)
         .collect()
@@ -1561,11 +1563,15 @@ mod tests {
     // ── filter_tracks ──────────────────────────────────────────────
 
     fn make_track(title: &str, artist: &str) -> crate::models::TrackInfo {
+        make_track_full(title, artist, "")
+    }
+
+    fn make_track_full(title: &str, artist: &str, album: &str) -> crate::models::TrackInfo {
         crate::models::TrackInfo {
             path: std::path::PathBuf::from("/dummy"),
             title: title.to_string(),
             artist: artist.to_string(),
-            album: String::new(),
+            album: album.to_string(),
             duration_secs: 0,
         }
     }
@@ -1613,6 +1619,37 @@ mod tests {
             make_track("Other", "Other"),
         ];
         assert_eq!(filter_tracks(&tracks, "love"), vec![0, 1]);
+    }
+
+    #[test]
+    fn filter_tracks_matches_album() {
+        let tracks = vec![
+            make_track_full("Song A", "Artist A", "Blue Album"),
+            make_track_full("Song B", "Artist B", "Red Album"),
+            make_track_full("Song C", "Artist C", "Other"),
+        ];
+        assert_eq!(filter_tracks(&tracks, "blue"), vec![0]);
+        assert_eq!(filter_tracks(&tracks, "album"), vec![0, 1]);
+        assert_eq!(filter_tracks(&tracks, "BLUE"), vec![0]);
+    }
+
+    #[test]
+    fn filter_tracks_album_title_overlap_no_duplicate() {
+        // タイトルとアルバム名の両方にマッチしても同じインデックスが重複しない
+        let tracks = vec![
+            make_track_full("Blue Song", "Artist", "Blue Album"),
+            make_track_full("Other", "Artist", "Other"),
+        ];
+        assert_eq!(filter_tracks(&tracks, "blue"), vec![0]);
+    }
+
+    #[test]
+    fn filter_tracks_empty_album_does_not_match_nonempty_query() {
+        // album が空文字のトラックは album 検索でヒットしない
+        let tracks = vec![
+            make_track("Song", "Artist"), // album = ""
+        ];
+        assert!(filter_tracks(&tracks, "album").is_empty());
     }
 
     // ── TestBackend 描画テスト ──────────────────────────────────────
