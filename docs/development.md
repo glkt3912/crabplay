@@ -88,14 +88,10 @@ TUI の動作は自動テストが難しいため、手動で確認する:
 
 PR・main push 時に macOS × stable Rust で自動実行:
 
-1. `cargo clippy -- -D warnings` — lint
-2. `cargo build --locked` — ビルド
-3. `cargo test` — テスト
-
-### 自動フォーマット (`fmt.yml`)
-
-PR 作成・更新時に `cargo fmt` を実行し、差分があればそのまま PR ブランチにコミットする。
-手動でフォーマットを直す必要はなく、CI が自動修正する。
+1. `cargo fmt --check` — フォーマット確認（差分があれば失敗する。ローカルで `cargo fmt` を実行して直す）
+2. `cargo clippy -- -D warnings` — lint
+3. `cargo build --locked` — ビルド
+4. `cargo test` — テスト
 
 ### リリース (`release.yml`)
 
