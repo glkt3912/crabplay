@@ -706,7 +706,7 @@ fn build_source_entries(source_dir: &std::path::Path, config: &Config) -> Vec<So
             })
             .collect();
         // 更新日時の新しい順（全件）
-        playlist_entries.sort_by(|a, b| b.0.cmp(&a.0));
+        playlist_entries.sort_by_key(|a| std::cmp::Reverse(a.0));
         entries.extend(playlist_entries.into_iter().map(|(_, e)| e));
     }
 
